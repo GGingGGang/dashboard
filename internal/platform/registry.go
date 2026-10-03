@@ -10,8 +10,9 @@ import (
 // Definition is the only registration a new provider needs. The factory owns
 // protocol-specific authentication and translates APIs into capability contracts.
 type Definition struct {
-	Info   ProviderInfo
-	Create func(Connection, string) (Provider, error)
+	Info     ProviderInfo
+	Validate func(Connection) error
+	Create   func(Connection, string) (Provider, error)
 }
 
 type Registry struct{ definitions map[string]Definition }
@@ -54,7 +55,7 @@ func (r *Registry) Info(kind string) (ProviderInfo, bool) {
 }
 
 func (r *Registry) Validate(c Connection) error {
-	if err := validateConnection(c); err != nil {
+	if err := ValidateConnection(c); err != nil {
 		return err
 	}
 	info, ok := r.Info(c.Kind)
@@ -63,6 +64,9 @@ func (r *Registry) Validate(c Connection) error {
 	}
 	if !slices.Contains(info.AuthMethods, c.Auth) {
 		return errors.New("이 플랫폼에서 지원하지 않는 인증 방식입니다. 연결 설정에서 인증 방식을 다시 선택하세요")
+	}
+	if validate := r.definitions[c.Kind].Validate; validate != nil {
+		return validate(c)
 	}
 	return nil
 }

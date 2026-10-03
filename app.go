@@ -14,8 +14,12 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/zalando/go-keyring"
+
+	"idp-dashboard/internal/collector"
 	"idp-dashboard/internal/demo"
 	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/providers"
+	"idp-dashboard/internal/storage"
 )
 
 type runner struct {
@@ -25,7 +29,7 @@ type runner struct {
 }
 type App struct {
 	ctx       context.Context
-	store     *platform.Store
+	store     *storage.Store
 	registry  *platform.Registry
 	mu        sync.Mutex
 	editMu    sync.Mutex
@@ -53,7 +57,7 @@ type ConnectionInput struct {
 }
 
 func NewApp(demoMode bool, extensions ...platform.Definition) *App {
-	registry, err := platform.NewRegistry(append(platform.BuiltinDefinitions(), extensions...)...)
+	registry, err := platform.NewRegistry(append(providers.BuiltinDefinitions(), extensions...)...)
 	if err != nil {
 		panic(err)
 	}
@@ -70,7 +74,7 @@ func (a *App) startup(ctx context.Context) {
 		root = filepath.Join(root, "demo")
 	}
 	var err error
-	a.store, err = platform.OpenStore(filepath.Join(root, "dashboard.db"))
+	a.store, err = storage.OpenStore(filepath.Join(root, "dashboard.db"))
 	if err != nil {
 		a.err = "Cannot open the local database. Existing files have not been reset."
 		return
@@ -120,22 +124,22 @@ func (a *App) ready() error {
 	}
 	return nil
 }
-func (a *App) find(id string) (platform.SavedConnection, error) {
+func (a *App) find(id string) (storage.SavedConnection, error) {
 	if err := a.ready(); err != nil {
-		return platform.SavedConnection{}, err
+		return storage.SavedConnection{}, err
 	}
 	connections, err := a.store.Connections()
 	if err != nil {
-		return platform.SavedConnection{}, errors.New("Cannot read connections")
+		return storage.SavedConnection{}, errors.New("Cannot read connections")
 	}
 	for _, c := range connections {
 		if c.Connection.ID == id {
 			return c, nil
 		}
 	}
-	return platform.SavedConnection{}, errors.New("Connection not found")
+	return storage.SavedConnection{}, errors.New("Connection not found")
 }
-func credential(c platform.SavedConnection) (string, error) {
+func credential(c storage.SavedConnection) (string, error) {
 	if c.Connection.Auth == "none" {
 		return "", nil
 	}
@@ -145,7 +149,7 @@ func credential(c platform.SavedConnection) (string, error) {
 	}
 	return secret, nil
 }
-func (a *App) provider(c platform.SavedConnection) (platform.Provider, error) {
+func (a *App) provider(c storage.SavedConnection) (platform.Provider, error) {
 	secret, err := credential(c)
 	if err != nil {
 		return nil, err
@@ -153,7 +157,7 @@ func (a *App) provider(c platform.SavedConnection) (platform.Provider, error) {
 	return a.registry.New(c.Connection, secret)
 }
 
-func (a *App) start(c platform.SavedConnection) {
+func (a *App) start(c storage.SavedConnection) {
 	ctx, cancel := context.WithCancel(a.ctx)
 	r := &runner{cancel: cancel, refresh: make(chan struct{}, 1), done: make(chan struct{})}
 	a.mu.Lock()
@@ -168,7 +172,7 @@ func (a *App) start(c platform.SavedConnection) {
 			a.mu.Unlock()
 			return
 		}
-		collector := platform.NewCollector(c.Connection, p, a.store)
+		poller := collector.NewCollector(c.Connection, p, a.store)
 		info, _ := a.registry.Info(c.Connection.Kind)
 		interval := time.Duration(info.PollSeconds) * time.Second
 		for {
@@ -178,7 +182,7 @@ func (a *App) start(c platform.SavedConnection) {
 				return
 			}
 			pollCtx, stop := context.WithTimeout(ctx, 60*time.Second)
-			snap := collector.Poll(pollCtx)
+			snap := poller.Poll(pollCtx)
 			stop()
 			<-a.gate
 			if ctx.Err() != nil {
@@ -266,7 +270,7 @@ func (a *App) SaveConnection(input ConnectionInput) (string, error) {
 	if len(c.Targets) > 50 || len(c.Rules) > 20 {
 		return "", errors.New("Use up to 50 targets and 20 rules per connection")
 	}
-	old := platform.SavedConnection{}
+	old := storage.SavedConnection{}
 	if c.ID == "" {
 		c.ID = randomID()
 	} else {
@@ -309,7 +313,7 @@ func (a *App) SaveConnection(input ConnectionInput) (string, error) {
 	a.mu.Lock()
 	delete(a.snapshots, c.ID)
 	a.mu.Unlock()
-	a.start(platform.SavedConnection{Connection: c, SecretRef: ref})
+	a.start(storage.SavedConnection{Connection: c, SecretRef: ref})
 	return c.ID, nil
 }
 
@@ -400,9 +404,9 @@ func (a *App) Presets(kind string) []platform.Rule {
 	}
 	return []platform.Rule{}
 }
-func (a *App) History(f platform.HistoryFilter) (platform.HistoryPage, error) {
+func (a *App) History(f storage.HistoryFilter) (storage.HistoryPage, error) {
 	if err := a.ready(); err != nil {
-		return platform.HistoryPage{}, err
+		return storage.HistoryPage{}, err
 	}
 	p, err := a.store.History(f)
 	if err != nil {

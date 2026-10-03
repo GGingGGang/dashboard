@@ -1,11 +1,11 @@
 import type {
-  Bridge,
   Build,
   Connection,
   QueryResult,
   Rule,
   State,
-} from "./types";
+} from "../shared/types";
+import type { Bridge } from "./types";
 
 // Browser preview is isolated from native settings, credentials, and archive.
 export function previewBridge(empty = false): Bridge {

@@ -1,4 +1,4 @@
-package platform
+package prometheus
 
 import (
 	"context"
@@ -10,18 +10,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/providers/internal/httpapi"
 )
 
-type Prometheus struct{ *api }
+type Prometheus struct{ api *httpapi.Client }
 
 func (p *Prometheus) Check(ctx context.Context) error {
-	_, err := p.Query(ctx, Query{Expression: "vector(1)"})
+	_, err := p.Query(ctx, platform.Query{Expression: "vector(1)"})
 	return err
 }
-func (p *Prometheus) Discover(context.Context) ([]Target, error) { return []Target{}, nil }
+func (p *Prometheus) Discover(context.Context) ([]platform.Target, error) {
+	return []platform.Target{}, nil
+}
 
-func (p *Prometheus) Query(ctx context.Context, q Query) (QueryResult, error) {
-	out := QueryResult{Series: []Series{}, Warnings: []string{}}
+func (p *Prometheus) Query(ctx context.Context, q platform.Query) (platform.QueryResult, error) {
+	out := platform.QueryResult{Series: []platform.Series{}, Warnings: []string{}}
 	if strings.TrimSpace(q.Expression) == "" || len(q.Expression) > 16384 {
 		return out, errors.New("Enter a query of at most 16 KiB")
 	}
@@ -46,7 +51,7 @@ func (p *Prometheus) Query(ctx context.Context, q Query) (QueryResult, error) {
 			Result json.RawMessage `json:"result"`
 		} `json:"data"`
 	}
-	if err := p.get(ctx, path, args, &response); err != nil {
+	if err := p.api.Get(ctx, path, args, &response); err != nil {
 		return out, err
 	}
 	if response.Status != "success" {
@@ -55,9 +60,7 @@ func (p *Prometheus) Query(ctx context.Context, q Query) (QueryResult, error) {
 	out.Type = response.Data.Type
 	// Upstream warnings can echo expressions; secrets are never part of requests' query text.
 	for _, w := range append(response.Warnings, response.Infos...) {
-		if p.secret != "" {
-			w = strings.ReplaceAll(w, p.secret, "[redacted]")
-		}
+		w = p.api.Redact(w)
 		out.Warnings = append(out.Warnings, w)
 	}
 	switch out.Type {
@@ -78,7 +81,7 @@ func (p *Prometheus) Query(ctx context.Context, q Query) (QueryResult, error) {
 			out.Warnings = append(out.Warnings, "Showing the first 100 series; narrow your query")
 		}
 		for _, row := range rows {
-			series := Series{Labels: row.Metric, Points: []Point{}}
+			series := platform.Series{Labels: row.Metric, Points: []platform.Point{}}
 			values := row.Values
 			if out.Type == "vector" && len(row.Value) > 0 {
 				values = [][]json.RawMessage{row.Value}
@@ -104,7 +107,7 @@ func (p *Prometheus) Query(ctx context.Context, q Query) (QueryResult, error) {
 		if err != nil {
 			return out, err
 		}
-		out.Series = append(out.Series, Series{Labels: map[string]string{}, Points: []Point{point}})
+		out.Series = append(out.Series, platform.Series{Labels: map[string]string{}, Points: []platform.Point{point}})
 	case "string":
 		out.Warnings = append(out.Warnings, "String results cannot be plotted; use a numeric expression")
 	default:
@@ -113,8 +116,8 @@ func (p *Prometheus) Query(ctx context.Context, q Query) (QueryResult, error) {
 	return out, nil
 }
 
-func decodePoint(pair []json.RawMessage) (Point, error) {
-	var p Point
+func decodePoint(pair []json.RawMessage) (platform.Point, error) {
+	var p platform.Point
 	if len(pair) != 2 {
 		return p, errors.New("Invalid sample")
 	}
@@ -133,4 +136,18 @@ func decodePoint(pair []json.RawMessage) (Point, error) {
 		p.Value = &v
 	}
 	return p, nil
+}
+
+// Definition registers this adapter and its supported capabilities.
+func Definition() platform.Definition {
+	return platform.Definition{
+		Info: platform.ProviderInfo{Kind: "prometheus", Name: "Prometheus", Category: "monitoring", Capabilities: []string{"metrics", "instant", "range", "rules"}, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, PollSeconds: 30, Query: &platform.QueryInfo{Language: "PromQL", DefaultExpression: "up", Presets: Presets()}},
+		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
+			client, err := httpapi.New(c, secret)
+			if err != nil {
+				return nil, err
+			}
+			return &Prometheus{api: client}, nil
+		},
+	}
 }

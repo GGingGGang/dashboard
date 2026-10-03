@@ -40,6 +40,15 @@ The native demo server and browser preview are synthetic. No real Jenkins builds
 5. Verify backup/restore through the Windows file dialog and across another Windows account, re-entering credentials there.
 6. For a public release, test a clean Windows installation, choose a license, replace default packaging artwork/metadata if desired, and decide code-signing/distribution policy. The current executable is a development artifact, not a signed release.
 
+## Package architecture refactor (2026-10-03)
+
+- Backend source and adjacent fixture tests now live in `platform`, `collector`, `storage`, and individual `providers/<name>` packages. The app and demo use the new import paths.
+- `go test ./... -count=1` and `go vet ./...` passed after the final package changes. This includes import-boundary checks, registry/provider validation, session login/refresh, missing-build retention, unchanged SQLite archive/backup behavior, and the combined-provider extension fixture.
+- The shared HTTP test verifies both rejection of an untrusted certificate and success with an explicitly provided test CA. Tests use disposable local fixtures; no production credentials are required.
+- Frontend bridge/contracts, shared display helpers, and chart rendering were extracted into folders. TypeScript/Vite production build and all 14 Playwright cases passed across both viewport sizes.
+- Wails 2.11.0 built the Windows amd64 executable using the tested frontend assets. A new native UI smoke session and live authenticated upstream checks were not run for this refactor.
+- No schema migration or dependency update was introduced. Numeric CI IDs, offset paging, source-compiled adapters, and page coordination in `frontend/src/main.ts` remain explicit boundaries.
+
 ## Reproduce
 
 ### Collection modularization (2026-10-03)

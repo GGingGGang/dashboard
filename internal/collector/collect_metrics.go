@@ -1,12 +1,14 @@
-package platform
+package collector
 
 import (
 	"context"
 	"time"
+
+	"idp-dashboard/internal/platform"
 )
 
-func (c *Collector) pollMetrics(ctx context.Context, p Monitoring, next *Snapshot) {
-	next.Rules = []RuleResult{}
+func (c *Collector) pollMetrics(ctx context.Context, p platform.MetricSource, next *platform.Snapshot) {
+	next.Rules = []platform.RuleResult{}
 	if err := p.Check(ctx); err != nil {
 		next.Error = err.Error()
 		return
@@ -19,8 +21,8 @@ func (c *Collector) pollMetrics(ctx context.Context, p Monitoring, next *Snapsho
 			next.Error = "Collection interrupted"
 			break
 		}
-		result, err := p.Query(ctx, Query{Expression: r.Expression})
-		rr := RuleResult{Rule: r, Result: result}
+		result, err := p.Query(ctx, platform.Query{Expression: r.Expression})
+		rr := platform.RuleResult{Rule: r, Result: result}
 		if err != nil {
 			rr.Error = err.Error()
 		} else {

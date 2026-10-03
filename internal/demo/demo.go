@@ -4,7 +4,6 @@ package demo
 import (
 	"encoding/json"
 	"fmt"
-	"idp-dashboard/internal/platform"
 	"math"
 	"net"
 	"net/http"
@@ -12,10 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/providers/prometheus"
 )
 
 func Connections(base string) []platform.Connection {
-	rules := platform.Presets()
+	rules := prometheus.Presets()
 	for i := range rules {
 		rules[i].Enabled = true
 	}

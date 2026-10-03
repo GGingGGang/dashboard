@@ -1,4 +1,4 @@
-package platform
+package httpapi
 
 import (
 	"bytes"
@@ -14,52 +14,21 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"idp-dashboard/internal/platform"
 )
 
-type APIError struct {
-	Status  int
-	Message string
-}
-
-func (e *APIError) Error() string { return e.Message }
-
-type api struct {
-	connection Connection
+type Client struct {
+	connection platform.Connection
 	base       *url.URL
 	client     *http.Client
 	secret     string
 }
 
-func validateConnection(c Connection) error {
-	if strings.TrimSpace(c.Name) == "" {
-		return errors.New("Connection name is required")
+func New(c platform.Connection, secret string) (*Client, error) {
+	if err := platform.ValidateConnection(c); err != nil {
+		return nil, err
 	}
-	for _, raw := range []string{c.URL, c.BrowserURL} {
-		if raw == "" && raw == c.BrowserURL && c.URL != "" {
-			continue
-		}
-		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return errors.New("Use an HTTP(S) base URL without credentials, query, or fragment")
-		}
-	}
-	if (c.Auth == "basic" || c.Auth == "argocd-login") && c.Username == "" {
-		return errors.New("Username is required for this authentication method")
-	}
-	for _, t := range c.Targets {
-		if t.ID == "" {
-			return errors.New("Target ID is required")
-		}
-	}
-	for _, r := range c.Rules {
-		if r.ID == "" || len(r.Expression) > 16384 || strings.TrimSpace(r.Expression) == "" {
-			return errors.New("Rules need an ID and a query of at most 16 KiB")
-		}
-	}
-	return nil
-}
-
-func newAPI(c Connection, secret string) (*api, error) {
 	u, _ := url.Parse(strings.TrimRight(c.URL, "/"))
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.MaxConnsPerHost = 4
@@ -78,16 +47,16 @@ func newAPI(c Connection, secret string) (*api, error) {
 		}
 		tr.TLSClientConfig.RootCAs = roots
 	}
-	a := &api{connection: c, base: u, secret: secret, client: &http.Client{Timeout: 8 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	a := &Client{connection: c, base: u, secret: secret, client: &http.Client{Timeout: 8 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	return a, nil
 }
 
-func (a *api) get(ctx context.Context, path string, q url.Values, out any) error {
-	return a.request(ctx, http.MethodGet, path, q, nil, out)
+func (a *Client) Get(ctx context.Context, path string, q url.Values, out any) error {
+	return a.Request(ctx, http.MethodGet, path, q, nil, out)
 }
 
 // POST is used only for the explicitly selected Argo CD session login.
-func (a *api) request(ctx context.Context, method, path string, q url.Values, body []byte, out any) error {
+func (a *Client) Request(ctx context.Context, method, path string, q url.Values, body []byte, out any) error {
 	// Paths are built by adapters, never copied from upstream URLs.
 	endpoint := strings.TrimRight(a.base.String(), "/") + path
 	parsed, err := url.Parse(endpoint)
@@ -134,7 +103,7 @@ func (a *api) request(ctx context.Context, method, path string, q url.Values, bo
 		case 503:
 			message = "Upstream unavailable or query timed out"
 		}
-		return &APIError{Status: resp.StatusCode, Message: message}
+		return &platform.APIError{Status: resp.StatusCode, Message: message}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024+1))
 	if err != nil {
@@ -149,10 +118,27 @@ func (a *api) request(ctx context.Context, method, path string, q url.Values, bo
 	return nil
 }
 
-func (a *api) link(path string) string {
+func (a *Client) Link(path string) string {
 	base := a.connection.BrowserURL
 	if base == "" {
 		base = a.connection.URL
 	}
 	return strings.TrimRight(base, "/") + path
+}
+
+// WithBearer shares the transport but keeps session credentials on a separate client.
+func (a *Client) WithBearer(token string) *Client {
+	copy := *a
+	copy.connection.Auth = "bearer"
+	copy.secret = token
+	return &copy
+}
+
+func (a *Client) BasePath() string { return a.base.Path }
+
+func (a *Client) Redact(message string) string {
+	if a.secret == "" {
+		return message
+	}
+	return strings.ReplaceAll(message, a.secret, "[redacted]")
 }

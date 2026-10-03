@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/zalando/go-keyring"
+
 	"idp-dashboard/internal/demo"
 	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/storage"
 )
 
 // Opt in: creates and removes only credentials belonging to this test.
@@ -22,7 +24,7 @@ func TestWindowsCredentialLifecycle(t *testing.T) {
 	a := NewApp(false)
 	a.ctx = context.Background()
 	var err error
-	a.store, err = platform.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	a.store, err = storage.OpenStore(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +67,7 @@ func TestChangedAuthenticationRequiresNewSecret(t *testing.T) {
 	a := NewApp(false)
 	a.ctx = context.Background()
 	var err error
-	a.store, err = platform.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	a.store, err = storage.OpenStore(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

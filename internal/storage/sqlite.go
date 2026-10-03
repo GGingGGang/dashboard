@@ -1,4 +1,4 @@
-package platform
+package storage
 
 import (
 	"database/sql"
@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	_ "modernc.org/sqlite"
+
+	"idp-dashboard/internal/platform"
 )
 
 type Store struct {
@@ -16,7 +18,7 @@ type Store struct {
 	Path string
 }
 type SavedConnection struct {
-	Connection Connection
+	Connection platform.Connection
 	SecretRef  string
 }
 type HistoryFilter struct {
@@ -28,9 +30,9 @@ type HistoryFilter struct {
 	Offset       int    `json:"offset"`
 }
 type HistoryPage struct {
-	Builds []Build `json:"builds"`
-	Total  int     `json:"total"`
-	Size   int64   `json:"size"`
+	Builds []platform.Build `json:"builds"`
+	Total  int              `json:"total"`
+	Size   int64            `json:"size"`
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -78,7 +80,7 @@ func (s *Store) Connections() ([]SavedConnection, error) {
 		if err = rows.Scan(&raw, &ref); err != nil {
 			return nil, err
 		}
-		var c Connection
+		var c platform.Connection
 		if err = json.Unmarshal([]byte(raw), &c); err != nil {
 			return nil, err
 		}
@@ -86,7 +88,7 @@ func (s *Store) Connections() ([]SavedConnection, error) {
 	}
 	return out, rows.Err()
 }
-func (s *Store) SaveConnection(c Connection, ref string) error {
+func (s *Store) SaveConnection(c platform.Connection, ref string) error {
 	b, err := json.Marshal(c)
 	if err != nil {
 		return err
@@ -99,13 +101,13 @@ func (s *Store) DeleteConnection(id string) error {
 	return err
 }
 
-func (s *Store) Known(b Build) (bool, error) {
+func (s *Store) Known(b platform.Build) (bool, error) {
 	var count int
 	err := s.db.QueryRow("SELECT count(*) FROM builds WHERE connection_id=? AND job=? AND number=? AND started=?", b.ConnectionID, b.Job, b.Number, b.Started).Scan(&count)
 	return count > 0, err
 }
 
-func (s *Store) SaveBuilds(builds []Build) error {
+func (s *Store) SaveBuilds(builds []platform.Build) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -127,11 +129,11 @@ func (s *Store) SaveBuilds(builds []Build) error {
 	return tx.Commit()
 }
 
-func scanBuilds(rows *sql.Rows) ([]Build, error) {
+func scanBuilds(rows *sql.Rows) ([]platform.Build, error) {
 	defer rows.Close()
-	out := []Build{}
+	out := []platform.Build{}
 	for rows.Next() {
-		var b Build
+		var b platform.Build
 		if err := rows.Scan(&b.ConnectionID, &b.Job, &b.Number, &b.Started, &b.Duration, &b.Status, &b.RawStatus, &b.Commit, &b.URL, &b.Observed); err != nil {
 			return nil, err
 		}
@@ -140,7 +142,7 @@ func scanBuilds(rows *sql.Rows) ([]Build, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Running(id string) ([]Build, error) {
+func (s *Store) Running(id string) ([]platform.Build, error) {
 	rows, err := s.db.Query("SELECT * FROM builds WHERE connection_id=? AND status='RUNNING' ORDER BY started ASC LIMIT 100", id)
 	if err != nil {
 		return nil, err
@@ -148,7 +150,7 @@ func (s *Store) Running(id string) ([]Build, error) {
 	return scanBuilds(rows)
 }
 func (s *Store) History(f HistoryFilter) (HistoryPage, error) {
-	out := HistoryPage{Builds: []Build{}}
+	out := HistoryPage{Builds: []platform.Build{}}
 	where := []string{"1=1"}
 	args := []any{}
 	if f.ConnectionID != "" {

@@ -1,4 +1,4 @@
-package platform
+package jenkins
 
 import (
 	"context"
@@ -7,17 +7,23 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/providers/internal/httpapi"
 )
 
-type Jenkins struct{ *api }
+type Jenkins struct {
+	api          *httpapi.Client
+	connectionID string
+}
 
 func (j *Jenkins) Check(ctx context.Context) error {
 	var out map[string]any
-	return j.get(ctx, "/api/json", url.Values{"tree": {"mode"}}, &out)
+	return j.api.Get(ctx, "/api/json", url.Values{"tree": {"mode"}}, &out)
 }
 
-func (j *Jenkins) Discover(ctx context.Context) ([]Target, error) {
-	targets := []Target{}
+func (j *Jenkins) Discover(ctx context.Context) ([]platform.Target, error) {
+	targets := []platform.Target{}
 	folders := []string{"/"}
 	for visited := 0; len(folders) > 0; visited++ {
 		if visited >= 200 {
@@ -32,7 +38,7 @@ func (j *Jenkins) Discover(ctx context.Context) ([]Target, error) {
 				Class    string `json:"_class"`
 			} `json:"jobs"`
 		}
-		if err := j.get(ctx, path+"api/json", url.Values{"tree": {"jobs[name,fullName,_class]"}}, &out); err != nil {
+		if err := j.api.Get(ctx, path+"api/json", url.Values{"tree": {"jobs[name,fullName,_class]"}}, &out); err != nil {
 			return nil, err
 		}
 		for _, job := range out.Jobs {
@@ -45,7 +51,7 @@ func (j *Jenkins) Discover(ctx context.Context) ([]Target, error) {
 			if name == "" {
 				name = job.Name
 			}
-			targets = append(targets, Target{ID: p, Name: name})
+			targets = append(targets, platform.Target{ID: p, Name: name})
 			if len(targets) > 2000 {
 				return nil, errors.New("Discovery exceeds 2000 jobs; use a narrower folder")
 			}
@@ -74,7 +80,7 @@ type jenkinsBuild struct {
 	} `json:"actions"`
 }
 
-func (j *Jenkins) normalize(job string, b jenkinsBuild) Build {
+func (j *Jenkins) normalize(job string, b jenkinsBuild) platform.Build {
 	status := b.Result
 	if b.Building {
 		status = "RUNNING"
@@ -89,12 +95,12 @@ func (j *Jenkins) normalize(job string, b jenkinsBuild) Build {
 			break
 		}
 	}
-	return Build{ConnectionID: j.connection.ID, Job: job, Number: b.Number, Started: b.Timestamp, Duration: b.Duration, Status: status, RawStatus: b.Result, Commit: commit, URL: j.link(fmt.Sprintf("%s%d/", job, b.Number)), Observed: time.Now().UnixMilli()}
+	return platform.Build{ConnectionID: j.connectionID, Job: job, Number: b.Number, Started: b.Timestamp, Duration: b.Duration, Status: status, RawStatus: b.Result, Commit: commit, URL: j.api.Link(fmt.Sprintf("%s%d/", job, b.Number)), Observed: time.Now().UnixMilli()}
 }
 
 const buildFields = "number,timestamp,duration,building,result,actions[lastBuiltRevision[SHA1]]"
 
-func (j *Jenkins) Builds(ctx context.Context, job string, offset int) ([]Build, bool, error) {
+func (j *Jenkins) Builds(ctx context.Context, job string, offset int) ([]platform.Build, bool, error) {
 	path, err := jobPath(job)
 	if err != nil {
 		return nil, false, err
@@ -106,30 +112,30 @@ func (j *Jenkins) Builds(ctx context.Context, job string, offset int) ([]Build, 
 		Builds []jenkinsBuild `json:"builds"`
 	}
 	q := url.Values{"tree": {fmt.Sprintf("builds[%s]{%d,%d}", buildFields, offset, offset+100)}}
-	if err = j.get(ctx, path+"api/json", q, &out); err != nil {
+	if err = j.api.Get(ctx, path+"api/json", q, &out); err != nil {
 		return nil, false, err
 	}
-	builds := []Build{}
+	builds := []platform.Build{}
 	for _, b := range out.Builds {
 		builds = append(builds, j.normalize(path, b))
 	}
 	return builds, len(out.Builds) == 100, nil
 }
 
-func (j *Jenkins) Build(ctx context.Context, job string, number int64) (Build, error) {
+func (j *Jenkins) Build(ctx context.Context, job string, number int64) (platform.Build, error) {
 	path, err := jobPath(job)
 	if err != nil {
-		return Build{}, err
+		return platform.Build{}, err
 	}
 	if number < 1 {
-		return Build{}, errors.New("Invalid build number")
+		return platform.Build{}, errors.New("Invalid build number")
 	}
 	var out jenkinsBuild
-	err = j.get(ctx, fmt.Sprintf("%s%d/api/json", path, number), url.Values{"tree": {buildFields}}, &out)
+	err = j.api.Get(ctx, fmt.Sprintf("%s%d/api/json", path, number), url.Values{"tree": {buildFields}}, &out)
 	return j.normalize(path, out), err
 }
 
-func (j *Jenkins) Queue(ctx context.Context) ([]QueueItem, error) {
+func (j *Jenkins) Queue(ctx context.Context) ([]platform.QueueItem, error) {
 	var out struct {
 		Items []struct {
 			ID    int64  `json:"id"`
@@ -141,20 +147,34 @@ func (j *Jenkins) Queue(ctx context.Context) ([]QueueItem, error) {
 			} `json:"task"`
 		} `json:"items"`
 	}
-	err := j.get(ctx, "/queue/api/json", url.Values{"tree": {"items[id,inQueueSince,why,task[name,url]]"}}, &out)
-	items := []QueueItem{}
+	err := j.api.Get(ctx, "/queue/api/json", url.Values{"tree": {"items[id,inQueueSince,why,task[name,url]]"}}, &out)
+	items := []platform.QueueItem{}
 	for _, i := range out.Items {
 		// Queue URLs can be configured with a different Jenkins root URL.
 		u, e := url.Parse(i.Task.URL)
 		if e != nil {
 			continue
 		}
-		basePath := strings.TrimRight(j.base.Path, "/")
+		basePath := strings.TrimRight(j.api.BasePath(), "/")
 		job := strings.TrimPrefix(u.EscapedPath(), basePath)
 		if _, e = jobPath(job); e != nil {
 			continue
 		}
-		items = append(items, QueueItem{ID: i.ID, Job: job, Since: i.Since, Reason: i.Why, URL: j.link(job)})
+		items = append(items, platform.QueueItem{ID: i.ID, Job: job, Since: i.Since, Reason: i.Why, URL: j.api.Link(job)})
 	}
 	return items, err
+}
+
+// Definition registers this adapter and its supported capabilities.
+func Definition() platform.Definition {
+	return platform.Definition{
+		Info: platform.ProviderInfo{Kind: "jenkins", Name: "Jenkins", Category: "ci", Capabilities: []string{"builds", "queue", "history"}, DefaultAuth: "basic", AuthMethods: []string{"basic", "bearer", "none"}, PollSeconds: 15},
+		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
+			client, err := httpapi.New(c, secret)
+			if err != nil {
+				return nil, err
+			}
+			return &Jenkins{api: client, connectionID: c.ID}, nil
+		},
+	}
 }

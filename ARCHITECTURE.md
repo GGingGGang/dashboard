@@ -1,20 +1,67 @@
-# Collection modules and extension boundaries
+# Architecture and extension boundaries
 
 The application composes capabilities instead of inheriting a universal data class. A time series, a build execution, and a deployment snapshot have different identity and retention semantics. Flattening them into an untyped payload would move those differences into every caller.
 
-```mermaid
-flowchart LR
-    A[Provider Definition] --> R[Registry: metadata and factory]
-    R --> P[Provider: Check and Discover]
-    P --> B[BuildSource]
-    P --> Q[QueueSource]
-    P --> D[DeploymentSource]
-    P --> M[MetricSource]
-    B & Q & D & M --> C[Common Collector]
-    C --> S[Typed Snapshot and per-capability status]
-    B --> H[SQLite build archive]
-    S --> U[Capability-driven views]
+## Repository layout
+
+```text
+dashboard/
+├── main.go                      # Wails entry point and window setup
+├── app.go                       # Compose packages, credentials, scheduling, UI bridge
+├── internal/
+│   ├── platform/                # Shared models, capability interfaces, registry, validation
+│   ├── collector/               # Polling policies; depends on capability and archive contracts
+│   ├── storage/                 # SQLite settings, build archive, preferences, backup
+│   ├── providers/
+│   │   ├── builtin.go           # Explicit list of shipped provider definitions
+│   │   ├── jenkins/             # API translation, metadata, fixture tests
+│   │   ├── argocd/              # API translation, session authentication, fixture tests
+│   │   ├── prometheus/          # API translation, PromQL presets, fixture/live tests
+│   │   └── internal/httpapi/    # Transport shared only within providers
+│   ├── demo/                   # Synthetic HTTP services and integration smoke test
+│   └── architecture/           # Production import-boundary regression test
+├── frontend/src/
+│   ├── main.ts                 # Navigation, page state, rendering and event coordination
+│   ├── bridge/                 # Wails access, bridge contract, browser fixture
+│   ├── components/chart.ts     # Numeric-series rendering and chart lifecycle
+│   ├── shared/                 # Data contracts and display formatting
+│   └── style.css
+├── frontend/tests/             # Browser acceptance tests
+├── examples/                   # User configuration guidance
+└── scripts/                    # Repeatable build and test commands
 ```
+
+These are Go **packages inside one module**, with one root `go.mod`. Each adapter owns its implementation, metadata, and tests. Adding a tool does not require another repository, module, or executable.
+
+## Dependency direction
+
+Arrows mean “imports”; the application is the composition point.
+
+```mermaid
+flowchart TD
+    App["app.go / Wails bridge"] --> Collector["collector"]
+    App --> Storage["storage / SQLite"]
+    App --> Providers["providers / built-in list"]
+    App --> Platform["platform / contracts and registry"]
+    Providers --> Adapters["jenkins / argocd / prometheus"]
+    Adapters --> HTTP["providers/internal/httpapi"]
+    Adapters --> Platform
+    HTTP --> Platform
+    Collector --> Platform
+    Storage --> Platform
+```
+
+- `platform` uses only the standard library. It cannot import providers, SQLite, or Wails.
+- `collector` imports `platform` and the standard library. Its `BuildArchive` interface requires only `Known`, `SaveBuilds`, and `Running`; `app.go` passes the SQLite implementation.
+- `storage` knows the shared data models, but not providers or collection scheduling.
+- Each provider imports the contracts and optionally the shared HTTP client. Providers do not import one another, the collector, or storage.
+- `providers/builtin.go` owns the shipped registration list. A provider's `Definition()` owns metadata, construction, and optional provider-specific connection validation.
+- The frontend's `bridge/index.ts` selects Wails or the browser fixture. Charts consume normalized numeric series, without querying upstream APIs.
+
+`internal/architecture/boundaries_test.go` checks production Go imports during `go test ./...`. Integration tests may compose multiple layers. Go's nested `internal` directory also prevents packages outside `providers` from importing its HTTP helper.
+
+The current extension model is **source contributions compiled with the app**. Go's `internal/platform` is a contract for packages in this repository, not a separately versioned public SDK or runtime plugin API. An independently distributed plugin SDK would need an explicit compatibility and loading design.
+
 
 ## Data contracts
 
@@ -31,17 +78,13 @@ Targets may declare `capabilities`. A combined provider can return one target fo
 
 ## Responsibilities
 
-- `model.go`: public contracts and normalized DTOs; no platform query presets.
-- `registry.go`: provider definitions, configuration validation, duplicate detection, and consistency checks between declared capabilities and implemented interfaces.
-- `builtin.go`: the composition point for Jenkins, Argo CD, and Prometheus. New external definitions can also be passed to `NewApp(demoMode, definitions...)` from `main.go`.
-- `collector.go`: orchestrates independent capabilities, serializes polling for a connection, respects cancellation, and publishes per-capability attempt/success/error state.
-- `collect_builds.go`: current build pages, historical import, local archive updates, and unfinished-build reconciliation.
-- `collect_queue.go`, `collect_deployments.go`, `collect_metrics.go`: typed collection policies for their respective data.
-- `jenkins.go`, `argocd.go`, `prometheus.go`: protocol translation and provider-specific authentication.
-- `prometheus_presets.go`: built-in PromQL examples. Other metric sources provide their own query language, default expression, and presets in `ProviderInfo.Query`.
-- `app.go`: desktop lifecycle, credential storage, registry injection, poll scheduling, and the frontend bridge.
+- `platform/model.go` defines normalized DTOs and independent capabilities. `registry.go` checks registration and interface/metadata consistency; `validation.go` checks shared connection fields.
+- `collector/collector.go` orchestrates one connection. `collect_builds.go`, `collect_queue.go`, `collect_deployments.go`, and `collect_metrics.go` own their respective collection policies.
+- `storage/sqlite.go` owns the unchanged archive schema, connection settings, preferences, and backup behavior.
+- `providers/<name>` owns API paths, response decoding, platform authentication, supported configuration, and tests. PromQL presets live in `providers/prometheus/presets.go`.
+- `app.go` owns desktop lifecycle, credential storage, registry composition, poll scheduling, and frontend methods.
 
-Provider identity is not used to select a collection policy. Interfaces select the modules. A registry entry describes `builds`, `queue`, `deployments`, or `metrics`; the registry rejects missing or undeclared implementations. It also supplies the polling interval and authentication choices. Protocol-specific authentication still lives in an adapter; adding OAuth is not implied by adding a metadata string.
+Provider identity does not select collection policy: implemented interfaces select capabilities. Protocol-specific validation uses the optional `Definition.Validate` callback; Argo CD local-account username validation lives with Argo CD. Authentication protocol implementation is still required when introducing a new authentication method.
 
 ## Failures and freshness
 
@@ -53,7 +96,7 @@ Query text is interpreted by the adapter. The frontend uses declared language, d
 
 ## Proven extension path
 
-`extensibility_test.go` is in the external `platform_test` package. It implements a combined provider using only public contracts, registers it through `Definition`, and collects builds, deployments, and synthetic SQL-shaped metrics without changing core collection code. The test checks target routing, absence of a queue, per-module failure isolation, immutable prior status, cancellation, and archive deduplication.
+`collector/extensibility_test.go` is in the external `collector_test` package. It implements a combined provider using only public contracts, registers it through `Definition`, and collects builds, deployments, and synthetic SQL-shaped metrics without changing core collection code. The test checks target routing, absence of a queue, per-module failure isolation, immutable prior status, cancellation, and archive deduplication.
 
 The browser suite independently injects a new provider name and SQL query metadata. It verifies the default expression, query execution, and the coexistence of target selection and metric-rule editing. These are contract proofs, not claims that a real fourth vendor has been integrated.
 
@@ -63,4 +106,4 @@ The first modularization deliberately preserves the existing SQLite format and h
 
 The proposed next change is explicit: replace numeric lookup keys with a string build ID; make page continuation an opaque provider cursor; migrate the archive transactionally from `(connection, job, number, started)` to `(connection, job, build_id, started)` while retaining `number` for display. Preserve existing IDs as decimal strings, validate record counts and uniqueness before committing, and test opening/restoring both old and migrated databases. A source backup was created before this refactor. This migration has **not** been applied.
 
-Logs, traces, alerts, DORA calculations, and metrics retention are not represented by the current four contracts. They require additional typed capabilities with explicit semantics. The UI rendering is still primarily in `frontend/src/main.ts`; this work separates provider and collection behavior, not every view component.
+Logs, traces, alerts, DORA calculations, and metrics retention are not represented by the current four contracts. They require additional typed capabilities with explicit semantics. Page rendering and event coordination remain in `frontend/src/main.ts`; the bridge, shared contracts/formatters, and chart component are separate modules. Existing capabilities can be extended without adding vendor-specific frontend polling. A new data capability still needs an explicit UI and collection contract.

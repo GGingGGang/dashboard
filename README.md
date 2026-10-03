@@ -75,7 +75,7 @@ Optional tests, explicitly enabled:
 ```powershell
 # Read-only integration with a reachable unauthenticated Prometheus:
 $env:IDP_TEST_PROMETHEUS_URL = 'http://localhost:9090'
-go test ./internal/platform -run TestPrometheusLive -v -count=1
+go test ./internal/providers/prometheus -run TestPrometheusLive -v -count=1
 Remove-Item Env:IDP_TEST_PROMETHEUS_URL
 
 # Creates and removes only a temporary test credential in your account:
@@ -96,8 +96,8 @@ The browser preview is an explicitly labelled in-memory fixture, with `/?empty` 
 
 ## Contribution and scope
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the four collection modules and their data contracts, [CONTRIBUTING.md](CONTRIBUTING.md) for adapter registration, and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the package layout, dependency rules, and four collection contracts, [CONTRIBUTING.md](CONTRIBUTING.md) for adapter registration, and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.
 
-Adapters are contributed as source and compiled with the app. There is no runtime plugin loader. Providers compose independent build, queue, deployment, and metric capabilities; a single provider can supply several. Metric query languages and defaults come from provider metadata. Authentication protocols outside the implemented flows still require explicit implementation. The archive still requires numeric build IDs and offset pagination; opaque IDs/cursors have not yet been generalized. Cross-platform packaging, remote multi-user access, full log retention, and notification delivery are outside this version.
+Adapters live in `internal/providers/<name>` with their own metadata and tests, and are registered in `internal/providers/builtin.go`. They are contributed as source and compiled with the app. There is no runtime plugin loader. Providers compose independent build, queue, deployment, and metric capabilities; a single provider can supply several. Metric query languages and defaults come from provider metadata. Authentication protocols outside the implemented flows still require explicit implementation. The archive still requires numeric build IDs and offset pagination; opaque IDs/cursors have not yet been generalized. Cross-platform packaging, remote multi-user access, full log retention, and notification delivery are outside this version.
 
 The existing `000.*`, `001.*`, and `002.*` files are design history. This README describes the implementation. A project license and public release process have not yet been selected; this working tree should not be presented as a licensed public release.

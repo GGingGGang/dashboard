@@ -1,13 +1,15 @@
-package platform
+package collector
 
 import (
 	"context"
 	"errors"
 	"time"
+
+	"idp-dashboard/internal/platform"
 )
 
-func (c *Collector) pollBuilds(ctx context.Context, p BuildSource, next *Snapshot) {
-	current := []Build{}
+func (c *Collector) pollBuilds(ctx context.Context, p platform.BuildSource, next *platform.Snapshot) {
+	current := []platform.Build{}
 	allOK := true
 	next.BackfillPending = false
 	for _, t := range c.Connection.Targets {
@@ -81,12 +83,12 @@ func (c *Collector) pollBuilds(ctx context.Context, p BuildSource, next *Snapsho
 			break
 		}
 		fresh, e := p.Build(ctx, old.Job, old.Number)
-		var ae *APIError
+		var ae *platform.APIError
 		if e != nil {
 			if errors.As(e, &ae) && ae.Status == 404 {
 				old.Status = "UNCONFIRMED"
 				old.Observed = time.Now().UnixMilli()
-				if e = c.Store.SaveBuilds([]Build{old}); e != nil {
+				if e = c.Store.SaveBuilds([]platform.Build{old}); e != nil {
 					next.StorageError = "Cannot save missing-build state"
 				}
 			}
@@ -95,11 +97,11 @@ func (c *Collector) pollBuilds(ctx context.Context, p BuildSource, next *Snapsho
 		if fresh.Started != old.Started {
 			old.Status = "UNCONFIRMED"
 			old.Observed = time.Now().UnixMilli()
-			if e = c.Store.SaveBuilds([]Build{old}); e != nil {
+			if e = c.Store.SaveBuilds([]platform.Build{old}); e != nil {
 				next.StorageError = "Cannot save replaced-build state"
 			}
 		}
-		if e = c.Store.SaveBuilds([]Build{fresh}); e != nil {
+		if e = c.Store.SaveBuilds([]platform.Build{fresh}); e != nil {
 			next.StorageError = "Cannot save completed build"
 		}
 	}

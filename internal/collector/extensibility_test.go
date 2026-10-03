@@ -1,4 +1,4 @@
-package platform_test
+package collector_test
 
 import (
 	"context"
@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"idp-dashboard/internal/collector"
 	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/storage"
 )
 
 // Deliberately outside package platform: extension code sees only public contracts.
@@ -54,7 +56,7 @@ func TestExternalProviderComposesCapabilitiesAndIsolatesFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := platform.OpenStore(filepath.Join(t.TempDir(), "archive.db"))
+	store, err := storage.OpenStore(filepath.Join(t.TempDir(), "archive.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +67,8 @@ func TestExternalProviderComposesCapabilitiesAndIsolatesFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collector := platform.NewCollector(c, p, store)
-	first := collector.Poll(context.Background())
+	poller := collector.NewCollector(c, p, store)
+	first := poller.Poll(context.Background())
 	if first.Error != "" || first.StorageError != "" || len(first.Modules) != 3 || len(first.Builds) != 1 || len(first.Deployments) != 1 || len(first.Rules) != 1 || first.Rules[0].Breaches != 1 {
 		t.Fatalf("combined collection failed: %+v", first)
 	}
@@ -77,7 +79,7 @@ func TestExternalProviderComposesCapabilitiesAndIsolatesFailure(t *testing.T) {
 		t.Fatal("sent deployment targets to build collection")
 	}
 	source.deploymentError = true
-	second := collector.Poll(context.Background())
+	second := poller.Poll(context.Background())
 	if second.Modules["deployments"].Error == "" || second.Modules["metrics"].Error != "" || second.Modules["builds"].Error != "" {
 		t.Fatal("one capability failure contaminated other capabilities")
 	}
@@ -87,36 +89,16 @@ func TestExternalProviderComposesCapabilitiesAndIsolatesFailure(t *testing.T) {
 	if len(second.Deployments) != 1 || second.Modules["deployments"].LastSuccess != first.Modules["deployments"].LastSuccess {
 		t.Fatal("lost last successful deployment evidence")
 	}
-	history, err := store.History(platform.HistoryFilter{})
+	history, err := store.History(storage.HistoryFilter{})
 	if err != nil || history.Total != 1 {
 		t.Fatal("archive duplication or loss")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	stopped := collector.Poll(ctx)
+	stopped := poller.Poll(ctx)
 	for _, status := range stopped.Modules {
 		if status.Error == "" {
 			t.Fatal("cancellation reported success")
 		}
-	}
-}
-
-func TestRegistryRejectsDuplicateAndInaccurateCapabilities(t *testing.T) {
-	d := definition(&hybrid{})
-	if _, err := platform.NewRegistry(d, d); err == nil {
-		t.Fatal("accepted duplicate kind")
-	}
-	d.Info.Capabilities = []string{"metrics"}
-	r, err := platform.NewRegistry(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = r.New(platform.Connection{Kind: "custom", Name: "test", URL: "https://example.invalid", Auth: "none"}, "")
-	if err == nil {
-		t.Fatal("accepted hidden build/deployment capabilities")
-	}
-	d.Info.Query = nil
-	if _, err = platform.NewRegistry(d); err == nil {
-		t.Fatal("accepted metrics without query metadata")
 	}
 }
