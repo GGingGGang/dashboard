@@ -26,6 +26,7 @@ type runner struct {
 type App struct {
 	ctx       context.Context
 	store     *platform.Store
+	registry  *platform.Registry
 	mu        sync.Mutex
 	editMu    sync.Mutex
 	runners   map[string]*runner
@@ -51,8 +52,12 @@ type ConnectionInput struct {
 	Secret     string              `json:"secret"`
 }
 
-func NewApp(demoMode bool) *App {
-	return &App{runners: map[string]*runner{}, snapshots: map[string]platform.Snapshot{}, gate: make(chan struct{}, 2), demoMode: demoMode}
+func NewApp(demoMode bool, extensions ...platform.Definition) *App {
+	registry, err := platform.NewRegistry(append(platform.BuiltinDefinitions(), extensions...)...)
+	if err != nil {
+		panic(err)
+	}
+	return &App{registry: registry, runners: map[string]*runner{}, snapshots: map[string]platform.Snapshot{}, gate: make(chan struct{}, 2), demoMode: demoMode}
 }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -145,7 +150,7 @@ func (a *App) provider(c platform.SavedConnection) (platform.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	return platform.New(c.Connection, secret)
+	return a.registry.New(c.Connection, secret)
 }
 
 func (a *App) start(c platform.SavedConnection) {
@@ -164,10 +169,8 @@ func (a *App) start(c platform.SavedConnection) {
 			return
 		}
 		collector := platform.NewCollector(c.Connection, p, a.store)
-		interval := 15 * time.Second
-		if _, monitoring := p.(platform.Monitoring); monitoring {
-			interval = 30 * time.Second
-		}
+		info, _ := a.registry.Info(c.Connection.Kind)
+		interval := time.Duration(info.PollSeconds) * time.Second
 		for {
 			select {
 			case a.gate <- struct{}{}:
@@ -223,7 +226,7 @@ func (a *App) Refresh() {
 	}
 }
 func (a *App) GetState() State {
-	s := State{Connections: []ConnectionView{}, Snapshots: []platform.Snapshot{}, Providers: platform.Providers(), Error: a.err, Demo: a.demoMode}
+	s := State{Connections: []ConnectionView{}, Snapshots: []platform.Snapshot{}, Providers: a.registry.Infos(), Error: a.err, Demo: a.demoMode}
 	if a.store == nil {
 		return s
 	}
@@ -257,7 +260,7 @@ func (a *App) SaveConnection(input ConnectionInput) (string, error) {
 		return "", err
 	}
 	c := input.Connection
-	if err := platform.Validate(c); err != nil {
+	if err := a.registry.Validate(c); err != nil {
 		return "", err
 	}
 	if len(c.Targets) > 50 || len(c.Rules) > 20 {
@@ -277,6 +280,9 @@ func (a *App) SaveConnection(input ConnectionInput) (string, error) {
 		}
 	}
 	ref := old.SecretRef
+	if c.Auth != "none" && input.Secret == "" && old.Connection.ID != "" && (old.Connection.Auth != c.Auth || ((c.Auth == "basic" || c.Auth == "argocd-login") && old.Connection.Username != c.Username)) {
+		return "", errors.New("인증 방식이나 사용자명을 바꿀 때는 새 토큰 또는 비밀번호를 입력하세요")
+	}
 	if c.Auth == "none" {
 		ref = ""
 	} else if input.Secret != "" {
@@ -338,12 +344,15 @@ func (a *App) TestConnection(input ConnectionInput) ([]platform.Target, error) {
 		if saved.Connection.URL != input.Connection.URL || saved.Connection.Kind != input.Connection.Kind {
 			return nil, errors.New("Enter a new credential when testing another address")
 		}
+		if saved.Connection.Auth != input.Connection.Auth || ((input.Connection.Auth == "basic" || input.Connection.Auth == "argocd-login") && saved.Connection.Username != input.Connection.Username) {
+			return nil, errors.New("인증 방식이나 사용자명을 바꿀 때는 새 토큰 또는 비밀번호를 입력하세요")
+		}
 		secret, err = credential(saved)
 		if err != nil {
 			return nil, err
 		}
 	}
-	p, err := platform.New(input.Connection, secret)
+	p, err := a.registry.New(input.Connection, secret)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +393,13 @@ func (a *App) Query(id string, q platform.Query) (platform.QueryResult, error) {
 	defer func() { <-a.gate }()
 	return m.Query(ctx, q)
 }
-func (a *App) Presets() []platform.Rule { return platform.Presets() }
+func (a *App) Presets(kind string) []platform.Rule {
+	info, ok := a.registry.Info(kind)
+	if ok && info.Query != nil {
+		return info.Query.Presets
+	}
+	return []platform.Rule{}
+}
 func (a *App) History(f platform.HistoryFilter) (platform.HistoryPage, error) {
 	if err := a.ready(); err != nil {
 		return platform.HistoryPage{}, err

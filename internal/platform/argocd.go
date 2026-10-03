@@ -2,10 +2,80 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
 	"net/url"
+	"sync"
 )
 
-type ArgoCD struct{ *api }
+type ArgoCD struct {
+	*api
+	mu           sync.Mutex
+	sessionToken string
+	loginError   error
+}
+
+func (a *ArgoCD) login(ctx context.Context) error {
+	if a.loginError != nil {
+		return a.loginError
+	}
+	body, err := json.Marshal(map[string]string{"username": a.connection.Username, "password": a.secret})
+	if err != nil {
+		return errors.New("Cannot prepare Argo CD login")
+	}
+	var response struct {
+		Token string `json:"token"`
+	}
+	if err = a.request(ctx, http.MethodPost, "/api/v1/session", nil, body, &response); err != nil {
+		var upstream *APIError
+		if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403) {
+			a.loginError = errors.New("Argo CD 로그인 실패: 사용자명·비밀번호와 로컬 계정 로그인 허용 여부를 확인한 뒤 연결을 다시 저장하세요")
+			return a.loginError
+		}
+		return err
+	}
+	if response.Token == "" {
+		return errors.New("Argo CD login did not return a session token")
+	}
+	a.sessionToken = response.Token
+	return nil
+}
+
+func (a *ArgoCD) applications(ctx context.Context, out any) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	client := *a.api
+	if a.connection.Auth == "argocd-login" {
+		if a.sessionToken == "" {
+			if err := a.login(ctx); err != nil {
+				return err
+			}
+		}
+		client.connection.Auth = "bearer"
+		client.secret = a.sessionToken
+	}
+	err := client.get(ctx, "/api/v1/applications", nil, out)
+	var upstream *APIError
+	if a.connection.Auth == "argocd-login" && errors.As(err, &upstream) && upstream.Status == 401 {
+		// Expired sessions get one refresh, never an unbounded login loop.
+		a.sessionToken = ""
+		if err = a.login(ctx); err != nil {
+			return err
+		}
+		client.secret = a.sessionToken
+		err = client.get(ctx, "/api/v1/applications", nil, out)
+	}
+	if errors.As(err, &upstream) {
+		switch upstream.Status {
+		case 401:
+			return errors.New("Argo CD 인증 실패: Bearer에는 비밀번호가 아닌 유효한 토큰이 필요합니다. 계정 비밀번호는 Argo CD 로그인을 선택하세요")
+		case 403:
+			return errors.New("Argo CD 조회 권한이 거부되었습니다. 계정 또는 토큰의 applications 조회 권한을 확인하세요")
+		}
+	}
+	return err
+}
 
 func (a *ArgoCD) Check(ctx context.Context) error { _, err := a.Deployments(ctx); return err }
 func (a *ArgoCD) Discover(ctx context.Context) ([]Target, error) {
@@ -44,7 +114,7 @@ func (a *ArgoCD) Deployments(ctx context.Context) ([]Deployment, error) {
 			} `json:"status"`
 		} `json:"items"`
 	}
-	err := a.get(ctx, "/api/v1/applications", url.Values{}, &response)
+	err := a.applications(ctx, &response)
 	result := []Deployment{}
 	for _, app := range response.Items {
 		revs := app.Status.Sync.Revisions

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -11,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"time"
 )
@@ -30,7 +30,7 @@ type api struct {
 	secret     string
 }
 
-func Validate(c Connection) error {
+func validateConnection(c Connection) error {
 	if strings.TrimSpace(c.Name) == "" {
 		return errors.New("Connection name is required")
 	}
@@ -43,14 +43,8 @@ func Validate(c Connection) error {
 			return errors.New("Use an HTTP(S) base URL without credentials, query, or fragment")
 		}
 	}
-	if c.Auth != "none" && c.Auth != "basic" && c.Auth != "bearer" {
-		return errors.New("Unsupported authentication method")
-	}
-	if c.Auth == "basic" && c.Username == "" {
-		return errors.New("Username is required for Basic authentication")
-	}
-	if _, ok := registry[c.Kind]; !ok {
-		return errors.New("Unknown provider")
+	if (c.Auth == "basic" || c.Auth == "argocd-login") && c.Username == "" {
+		return errors.New("Username is required for this authentication method")
 	}
 	for _, t := range c.Targets {
 		if t.ID == "" {
@@ -65,13 +59,7 @@ func Validate(c Connection) error {
 	return nil
 }
 
-func New(c Connection, secret string) (Provider, error) {
-	if err := Validate(c); err != nil {
-		return nil, err
-	}
-	if c.Auth != "none" && secret == "" {
-		return nil, errors.New("Authentication secret is missing")
-	}
+func newAPI(c Connection, secret string) (*api, error) {
 	u, _ := url.Parse(strings.TrimRight(c.URL, "/"))
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.MaxConnsPerHost = 4
@@ -91,28 +79,15 @@ func New(c Connection, secret string) (Provider, error) {
 		tr.TLSClientConfig.RootCAs = roots
 	}
 	a := &api{connection: c, base: u, secret: secret, client: &http.Client{Timeout: 8 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
-	return registry[c.Kind].create(a), nil
-}
-
-var registry = map[string]struct {
-	info   ProviderInfo
-	create func(*api) Provider
-}{
-	"jenkins":    {ProviderInfo{Kind: "jenkins", Name: "Jenkins", Category: "ci", Capabilities: []string{"builds", "queue", "history"}, DefaultAuth: "basic"}, func(a *api) Provider { return &Jenkins{a} }},
-	"argocd":     {ProviderInfo{Kind: "argocd", Name: "Argo CD", Category: "cd", Capabilities: []string{"deployments", "sync", "health"}, DefaultAuth: "bearer"}, func(a *api) Provider { return &ArgoCD{a} }},
-	"prometheus": {ProviderInfo{Kind: "prometheus", Name: "Prometheus", Category: "monitoring", Capabilities: []string{"promql", "instant", "range", "rules"}, DefaultAuth: "none"}, func(a *api) Provider { return &Prometheus{a} }},
-}
-
-func Providers() []ProviderInfo {
-	out := make([]ProviderInfo, 0, len(registry))
-	for _, entry := range registry {
-		out = append(out, entry.info)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return a, nil
 }
 
 func (a *api) get(ctx context.Context, path string, q url.Values, out any) error {
+	return a.request(ctx, http.MethodGet, path, q, nil, out)
+}
+
+// POST is used only for the explicitly selected Argo CD session login.
+func (a *api) request(ctx context.Context, method, path string, q url.Values, body []byte, out any) error {
 	// Paths are built by adapters, never copied from upstream URLs.
 	endpoint := strings.TrimRight(a.base.String(), "/") + path
 	parsed, err := url.Parse(endpoint)
@@ -120,11 +95,14 @@ func (a *api) get(ctx context.Context, path string, q url.Values, out any) error
 		return errors.New("Invalid API path")
 	}
 	parsed.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), bytes.NewReader(body))
 	if err != nil {
 		return errors.New("Invalid API request")
 	}
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if a.connection.Auth == "basic" {
 		req.SetBasicAuth(a.connection.Username, a.secret)
 	}

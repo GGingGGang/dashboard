@@ -1,4 +1,5 @@
 export type Target = {
+  capabilities?: string[];
   id: string;
   name: string;
   service: string;
@@ -61,6 +62,10 @@ export type QueryResult = {
   truncated: boolean;
 };
 export type Snapshot = {
+  modules?: Record<
+    string,
+    { attempted: string; lastSuccess: string; error: string }
+  >;
   connectionId: string;
   attempted: string;
   lastSuccess: string;
@@ -88,6 +93,9 @@ export type State = {
     category: string;
     capabilities: string[];
     defaultAuth: string;
+    authMethods: string[];
+    pollSeconds?: number;
+    query?: { language: string; defaultExpression: string; presets: Rule[] };
   }[];
   error: string;
   demo: boolean;
@@ -112,7 +120,7 @@ export type Bridge = {
     secret: string;
   }): Promise<Target[]>;
   Query(id: string, q: Query): Promise<QueryResult>;
-  Presets(): Promise<Rule[]>;
+  Presets(kind: string): Promise<Rule[]>;
   History(
     f: HistoryFilter,
   ): Promise<{ builds: Build[]; total: number; size: number }>;

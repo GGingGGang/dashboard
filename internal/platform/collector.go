@@ -2,7 +2,8 @@ package platform
 
 import (
 	"context"
-	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,52 +29,41 @@ func (c *Collector) Poll(ctx context.Context) Snapshot {
 	next.Attempted = time.Now()
 	next.Error = ""
 	next.StorageError = ""
-	switch p := c.Provider.(type) {
-	case CI:
-		c.pollCI(ctx, p, &next)
-	case CD:
-		apps, err := p.Deployments(ctx)
-		if err != nil {
-			next.Error = err.Error()
-			break
+	next.Modules = map[string]CollectionStatus{}
+	failures := []string{}
+	collect := func(name string, run func()) {
+		status := c.previous.Modules[name]
+		status.Attempted = next.Attempted
+		next.Error = ""
+		if ctx.Err() == nil {
+			run()
+		} else {
+			next.Error = "Collection interrupted"
 		}
-		next.Deployments = []Deployment{}
-		for _, a := range apps {
-			if c.selected(a.ID) {
-				next.Deployments = append(next.Deployments, a)
-			}
+		status.Error = next.Error
+		if status.Error == "" {
+			status.LastSuccess = time.Now()
+		} else {
+			failures = append(failures, name+": "+status.Error)
 		}
-	case Monitoring:
-		next.Rules = []RuleResult{}
-		if err := p.Check(ctx); err != nil {
-			next.Error = err.Error()
-			break
-		}
-		for _, r := range c.Connection.Rules {
-			if !r.Enabled {
-				continue
-			}
-			if ctx.Err() != nil {
-				next.Error = "Collection interrupted"
-				break
-			}
-			result, err := p.Query(ctx, Query{Expression: r.Expression})
-			rr := RuleResult{Rule: r, Result: result}
-			if err != nil {
-				rr.Error = err.Error()
-			} else {
-				for _, series := range result.Series {
-					if len(series.Points) > 0 {
-						pt := series.Points[len(series.Points)-1]
-						if pt.Value != nil && time.Since(time.Unix(int64(pt.Time), 0)) <= time.Minute*2 && *pt.Value > r.Threshold {
-							rr.Breaches++
-						}
-					}
-				}
-			}
-			next.Rules = append(next.Rules, rr)
-		}
+		next.Modules[name] = status
 	}
+	if p, ok := c.Provider.(BuildSource); ok {
+		collect("builds", func() { c.pollBuilds(ctx, p, &next) })
+	}
+	if p, ok := c.Provider.(QueueSource); ok {
+		collect("queue", func() { c.pollQueue(ctx, p, &next) })
+	}
+	if p, ok := c.Provider.(CD); ok {
+		collect("deployments", func() { c.pollDeployments(ctx, p, &next) })
+	}
+	if p, ok := c.Provider.(Monitoring); ok {
+		collect("metrics", func() { c.pollMetrics(ctx, p, &next) })
+	}
+	if len(next.Modules) == 0 {
+		failures = append(failures, "Provider has no supported collection capability")
+	}
+	next.Error = strings.Join(failures, "; ")
 	if next.Error == "" {
 		next.LastSuccess = time.Now()
 	}
@@ -81,118 +71,11 @@ func (c *Collector) Poll(ctx context.Context) Snapshot {
 	return next
 }
 
-func (c *Collector) selected(id string) bool {
+func (c *Collector) selected(id string, capability string) bool {
 	for _, t := range c.Connection.Targets {
-		if t.ID == id {
+		if t.ID == id && (len(t.Capabilities) == 0 || slices.Contains(t.Capabilities, capability)) {
 			return true
 		}
 	}
 	return false
-}
-
-func (c *Collector) pollCI(ctx context.Context, p CI, next *Snapshot) {
-	queue, err := p.Queue(ctx)
-	if err != nil {
-		next.Error = err.Error()
-	} else {
-		next.Queue = []QueueItem{}
-		for _, q := range queue {
-			if c.selected(q.Job) {
-				next.Queue = append(next.Queue, q)
-			}
-		}
-	}
-	current := []Build{}
-	allOK := true
-	next.BackfillPending = false
-	for _, t := range c.Connection.Targets {
-		if ctx.Err() != nil {
-			next.Error = "Collection interrupted"
-			allOK = false
-			break
-		}
-		builds, more, e := p.Builds(ctx, t.ID, 0)
-		if e != nil {
-			next.Error = e.Error()
-			allOK = false
-			continue
-		}
-		current = append(current, builds...)
-		known := false
-		for _, b := range builds {
-			k, e := c.Store.Known(b)
-			if e != nil {
-				next.StorageError = "Cannot read local archive"
-				break
-			}
-			known = known || k
-		}
-		if e = c.Store.SaveBuilds(builds); e != nil {
-			next.StorageError = "Cannot save local archive; check disk space and file permissions"
-			continue
-		}
-		cursor, exists := c.cursors[t.ID]
-		if !exists || (cursor < 0 && !known && more) {
-			cursor = 80
-		}
-		if !more {
-			cursor = -1
-		}
-		if cursor >= 0 {
-			older, hasMore, e := p.Builds(ctx, t.ID, cursor)
-			if e != nil {
-				next.Error = e.Error()
-			} else if e = c.Store.SaveBuilds(older); e != nil {
-				next.StorageError = "Cannot save historical builds"
-			} else {
-				next.Imported += len(older)
-				if hasMore {
-					cursor += 80
-				} else {
-					cursor = -1
-				}
-			}
-		}
-		c.cursors[t.ID] = cursor
-		next.BackfillPending = next.BackfillPending || cursor >= 0
-	}
-	if allOK {
-		next.Builds = current
-	}
-	// Revisit previously observed running builds even when they have fallen off page one.
-	running, e := c.Store.Running(c.Connection.ID)
-	if e != nil {
-		next.StorageError = "Cannot read unfinished builds"
-		return
-	}
-	for _, old := range running {
-		if !c.selected(old.Job) {
-			continue
-		}
-		if ctx.Err() != nil {
-			break
-		}
-		fresh, e := p.Build(ctx, old.Job, old.Number)
-		var ae *APIError
-		if e != nil {
-			if errors.As(e, &ae) && ae.Status == 404 {
-				old.Status = "UNCONFIRMED"
-				old.Observed = time.Now().UnixMilli()
-				if e = c.Store.SaveBuilds([]Build{old}); e != nil {
-					next.StorageError = "Cannot save missing-build state"
-				}
-			}
-			continue
-		}
-		if fresh.Started != old.Started {
-			old.Status = "UNCONFIRMED"
-			old.Observed = time.Now().UnixMilli()
-			if e = c.Store.SaveBuilds([]Build{old}); e != nil {
-				next.StorageError = "Cannot save replaced-build state"
-			}
-		}
-		if e = c.Store.SaveBuilds([]Build{fresh}); e != nil {
-			next.StorageError = "Cannot save completed build"
-		}
-	}
 }

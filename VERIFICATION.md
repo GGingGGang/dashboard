@@ -42,6 +42,20 @@ The native demo server and browser preview are synthetic. No real Jenkins builds
 
 ## Reproduce
 
+### Collection modularization (2026-10-03)
+
+- Go tests and `go vet ./...` passed after the refactor. Existing Jenkins backfill, archive retention, Argo authentication, and Prometheus fixture tests remain passing.
+- An external-package fixture registers a new combined provider and supplies build, deployment, and SQL-shaped metric data without core collector edits. It verifies optional queue support, capability-specific target routing, isolated failures, previous snapshot immutability, cancellation, and archive deduplication.
+- Registry tests reject duplicate provider kinds, inaccurate capability declarations, and metrics without query metadata.
+- All 14 browser cases passed across both window sizes. The added case uses a new platform kind and SQL metadata, executes a query, and confirms that target selection and metric rules coexist in a combined provider.
+- This proves the extension contract with fixtures; it does not add or validate a real fourth vendor. No database migration was performed. Numeric build IDs and offset pages remain constraints.
+
+### Argo CD authentication correction (2026-10-03)
+
+The connection form previously offered HTTP Basic for Argo CD, which does not perform Argo CD account login. Supported methods are now provider-specific. An explicit local-account login exchanges username/password at `/api/v1/session`, caches the returned bearer token in memory, and refreshes once after a 401. A rejected password is not automatically retried on subsequent polls. Changing authentication method requires a new credential entry.
+
+Go HTTP fixture tests passed for login payload and proxy prefixes, session reuse/expiry, rejected-password retry suppression and error redaction, existing bearer operation, permission errors, and Basic rejection. UI tests passed in both window sizes, including choosing Argo CD login versus bearer and clearing the secret on authentication changes (12 UI cases total). Real credentials from the screenshot were not read or used; authenticated production acceptance remains pending.
+
 Run `scripts/test.ps1`, then `scripts/build.ps1`. See the optional integration commands in `README.md`. Browser screenshots and failed-test traces are written under `frontend/test-results`; these generated files are ignored by Git.
 
 The Vite build currently emits a non-fatal bundle-size warning (approximately 585 kB of JavaScript before gzip). No network download is needed for those assets at runtime because they are embedded. Performance under many simultaneous real connections has not been measured.

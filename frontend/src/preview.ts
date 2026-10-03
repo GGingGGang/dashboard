@@ -119,6 +119,7 @@ export function previewBridge(empty = false): Bridge {
             category: "ci",
             capabilities: ["builds", "queue", "history"],
             defaultAuth: "basic",
+            authMethods: ["basic", "bearer", "none"],
           },
           {
             kind: "argocd",
@@ -126,13 +127,16 @@ export function previewBridge(empty = false): Bridge {
             category: "cd",
             capabilities: ["deployments", "sync", "health"],
             defaultAuth: "bearer",
+            authMethods: ["bearer", "argocd-login", "none"],
           },
           {
             kind: "prometheus",
             name: "Prometheus",
             category: "monitoring",
-            capabilities: ["promql", "instant", "range", "rules"],
+            capabilities: ["metrics", "instant", "range", "rules"],
             defaultAuth: "none",
+            query: { language: "PromQL", defaultExpression: "up", presets },
+            authMethods: ["none", "basic", "bearer"],
           },
         ],
         snapshots: connections.map((c) => ({
@@ -218,8 +222,8 @@ export function previewBridge(empty = false): Bridge {
         throw new Error("Query or request rejected by upstream");
       return result(q.expression === "up" ? 1 : 42, q.start > 0);
     },
-    async Presets() {
-      return structuredClone(presets);
+    async Presets(kind) {
+      return kind === "prometheus" ? structuredClone(presets) : [];
     },
     async History(f) {
       const rows = builds.filter(

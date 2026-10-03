@@ -23,10 +23,12 @@ Demo mode exercises the same Go HTTP adapters and SQLite collector as real conne
 | Provider | Read operations | Configuration |
 | --- | --- | --- |
 | Jenkins | Folder/multibranch discovery, build summaries, queue, historical backfill | Controller base URL, typically Basic auth with username/API token |
-| Argo CD | Application discovery, Sync, Health, revision, last operation | Argo CD server base URL and bearer token |
+| Argo CD | Application discovery, Sync, Health, revision, last operation | Server base URL and bearer token, or explicit local-account session login |
 | Prometheus | Instant and range queries, threshold rules | Prometheus base URL; none, Basic, or bearer authentication |
 
-Only read requests are issued. The app cannot trigger builds, sync applications, or change monitoring configuration. Current integrations use existing HTTP APIs and need no upstream plugin. Authentication and network access still have to be configured on each upstream service.
+Resource requests are read-only. Explicit Argo CD account login uses `POST /api/v1/session` to obtain a session token; the app cannot trigger builds, sync applications, or change monitoring configuration. Current integrations use existing HTTP APIs and need no upstream plugin. Authentication and network access still have to be configured on each upstream service.
+
+For Argo CD, choose **Bearer · API 토큰** for an existing token, or **Argo CD 로그인 · 사용자명 + 비밀번호** for a local account such as `admin`. HTTP Basic is not Argo CD account login. The login option stores the password in Windows Credential Manager, keeps the issued token in memory, and retries an expired session once. Rejected login credentials stop automatic login attempts until the connection is saved again. SSO is not supported. Existing Basic connections require selecting a supported method and re-entering the credential; credentials are not silently reinterpreted. See the [Argo CD API documentation](https://argo-cd.readthedocs.io/en/stable/developer-guide/api-docs/).
 
 Supply a **base URL**, including a reverse-proxy prefix if applicable; do not append `/api/json` or `/api/v1`. Jenkins requires its controller root, not a job/folder URL. An optional browser URL allows source links to use another address. An optional PEM CA file extends the system trust store. TLS verification is always enabled; redirects are rejected to avoid forwarding credentials to another endpoint. Configure the final URL directly.
 
@@ -94,8 +96,8 @@ The browser preview is an explicitly labelled in-memory fixture, with `/?empty` 
 
 ## Contribution and scope
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the adapter contract and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the four collection modules and their data contracts, [CONTRIBUTING.md](CONTRIBUTING.md) for adapter registration, and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.
 
-Adapters are contributed as source and compiled with the app. There is no runtime plugin loader. New providers that implement the existing CI/CD or PromQL contracts can reuse the current views; different query languages or authentication protocols require an explicit contract/UI change. Cross-platform packaging, remote multi-user access, full log retention, and notification delivery are outside this version.
+Adapters are contributed as source and compiled with the app. There is no runtime plugin loader. Providers compose independent build, queue, deployment, and metric capabilities; a single provider can supply several. Metric query languages and defaults come from provider metadata. Authentication protocols outside the implemented flows still require explicit implementation. The archive still requires numeric build IDs and offset pagination; opaque IDs/cursors have not yet been generalized. Cross-platform packaging, remote multi-user access, full log retention, and notification delivery are outside this version.
 
 The existing `000.*`, `001.*`, and `002.*` files are design history. This README describes the implementation. A project license and public release process have not yet been selected; this working tree should not be presented as a licensed public release.

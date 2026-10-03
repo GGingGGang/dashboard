@@ -5,9 +5,9 @@ These are UI configuration examples, not an import format. Replace the sample do
 | Field | Jenkins | Argo CD | Prometheus |
 | --- | --- | --- | --- |
 | API URL | `https://ci.example.org/jenkins` | `https://deploy.example.org` | `https://metrics.example.org/prometheus` |
-| Authentication | Basic | Bearer | None, Basic, or Bearer as configured upstream |
-| Username | A user with read access | Empty | Only when Basic is selected |
-| Secret | Jenkins API token | A token allowed to read the chosen applications | Proxy/API credential if required |
+| Authentication | Basic | Bearer or Argo CD login | None, Basic, or Bearer as configured upstream |
+| Username | A user with read access | Local account name for login; empty for bearer | Only when Basic is selected |
+| Secret | Jenkins API token | API token for bearer; local-account password for login | Proxy/API credential if required |
 | Selection | Discover and select branch jobs | Discover and select applications | Enable only rules with available metrics |
 | Service/environment | e.g. `payments` / `production` | Use matching labels for related targets | Express scope in PromQL labels |
 

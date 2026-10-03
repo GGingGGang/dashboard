@@ -19,18 +19,40 @@ type Connection struct {
 }
 
 type Target struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Service     string `json:"service"`
-	Environment string `json:"environment"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Service      string   `json:"service"`
+	Environment  string   `json:"environment"`
 }
 
 type ProviderInfo struct {
-	Kind         string   `json:"kind"`
-	Name         string   `json:"name"`
-	Category     string   `json:"category"`
-	Capabilities []string `json:"capabilities"`
-	DefaultAuth  string   `json:"defaultAuth"`
+	Kind         string     `json:"kind"`
+	Name         string     `json:"name"`
+	Category     string     `json:"category"`
+	Capabilities []string   `json:"capabilities"`
+	DefaultAuth  string     `json:"defaultAuth"`
+	AuthMethods  []string   `json:"authMethods"`
+	Query        *QueryInfo `json:"query,omitempty"`
+	PollSeconds  int        `json:"pollSeconds"`
+}
+
+type QueryInfo struct {
+	Language          string `json:"language"`
+	DefaultExpression string `json:"defaultExpression"`
+	Presets           []Rule `json:"presets"`
+}
+
+// Capabilities are independently implemented and may coexist on one provider.
+type BuildSource interface {
+	Provider
+	Builds(context.Context, string, int) ([]Build, bool, error)
+	Build(context.Context, string, int64) (Build, error)
+}
+
+type QueueSource interface {
+	Provider
+	Queue(context.Context) ([]QueueItem, error)
 }
 
 type Provider interface {
@@ -39,21 +61,23 @@ type Provider interface {
 }
 
 type CI interface {
-	Provider
-	Builds(context.Context, string, int) ([]Build, bool, error)
-	Build(context.Context, string, int64) (Build, error)
-	Queue(context.Context) ([]QueueItem, error)
+	BuildSource
+	QueueSource
 }
 
-type CD interface {
+type DeploymentSource interface {
 	Provider
 	Deployments(context.Context) ([]Deployment, error)
 }
 
-type Monitoring interface {
+type MetricSource interface {
 	Provider
 	Query(context.Context, Query) (QueryResult, error)
 }
+
+// Compatibility names for existing adapters. New adapters use capability names.
+type CD = DeploymentSource
+type Monitoring = MetricSource
 
 type Build struct {
 	ConnectionID string `json:"connectionId"`
@@ -130,25 +154,22 @@ type RuleResult struct {
 }
 
 type Snapshot struct {
-	ConnectionID    string       `json:"connectionId"`
-	Attempted       time.Time    `json:"attempted"`
-	LastSuccess     time.Time    `json:"lastSuccess"`
-	Error           string       `json:"error"`
-	StorageError    string       `json:"storageError"`
-	Builds          []Build      `json:"builds"`
-	Queue           []QueueItem  `json:"queue"`
-	Deployments     []Deployment `json:"deployments"`
-	Rules           []RuleResult `json:"rules"`
-	Imported        int          `json:"imported"`
-	BackfillPending bool         `json:"backfillPending"`
+	Modules         map[string]CollectionStatus `json:"modules"`
+	ConnectionID    string                      `json:"connectionId"`
+	Attempted       time.Time                   `json:"attempted"`
+	LastSuccess     time.Time                   `json:"lastSuccess"`
+	Error           string                      `json:"error"`
+	StorageError    string                      `json:"storageError"`
+	Builds          []Build                     `json:"builds"`
+	Queue           []QueueItem                 `json:"queue"`
+	Deployments     []Deployment                `json:"deployments"`
+	Rules           []RuleResult                `json:"rules"`
+	Imported        int                         `json:"imported"`
+	BackfillPending bool                        `json:"backfillPending"`
 }
 
-func Presets() []Rule {
-	return []Rule{
-		{ID: "cpu", Name: "Node CPU", Expression: `100 * (1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])))`, Threshold: 85, Unit: "%", Description: "5-minute average; requires node-exporter"},
-		{ID: "memory", Name: "Node memory", Expression: `100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)`, Threshold: 90, Unit: "%", Description: "Available memory ratio; requires node-exporter"},
-		{ID: "disk", Name: "Filesystem usage", Expression: `100 * (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs",mountpoint!~"/run.*"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs",mountpoint!~"/run.*"})`, Threshold: 85, Unit: "%", Description: "Per filesystem; requires node-exporter"},
-		{ID: "restarts", Name: "Container restarts", Expression: `increase(kube_pod_container_status_restarts_total[15m])`, Threshold: 2.999, Unit: "restarts", Description: "3 or more restarts in 15 minutes; requires kube-state-metrics"},
-		{ID: "targets", Name: "Scrape failures", Expression: `1 - up`, Threshold: 0, Unit: "", Description: "1 means the target is down; 0 means reachable"},
-	}
+type CollectionStatus struct {
+	Attempted   time.Time `json:"attempted"`
+	LastSuccess time.Time `json:"lastSuccess"`
+	Error       string    `json:"error"`
 }

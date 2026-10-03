@@ -60,3 +60,26 @@ func TestWindowsCredentialLifecycle(t *testing.T) {
 		t.Fatal("credential was not removed")
 	}
 }
+
+func TestChangedAuthenticationRequiresNewSecret(t *testing.T) {
+	a := NewApp(false)
+	a.ctx = context.Background()
+	var err error
+	a.store, err = platform.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.store.Close()
+	legacy := platform.Connection{ID: "legacy", Kind: "argocd", Name: "Argo", URL: "http://localhost", Auth: "basic", Username: "admin"}
+	if err = a.store.SaveConnection(legacy, "unused-test-reference"); err != nil {
+		t.Fatal(err)
+	}
+	changed := legacy
+	changed.Auth = "argocd-login"
+	if _, err = a.TestConnection(ConnectionInput{Connection: changed}); err == nil || !strings.Contains(err.Error(), "새 토큰 또는 비밀번호") {
+		t.Fatal("test reused a credential across authentication methods")
+	}
+	if _, err = a.SaveConnection(ConnectionInput{Connection: changed}); err == nil || !strings.Contains(err.Error(), "새 토큰 또는 비밀번호") {
+		t.Fatal("save reused a credential across authentication methods")
+	}
+}

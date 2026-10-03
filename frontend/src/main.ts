@@ -49,8 +49,8 @@ let charts: echarts.ECharts[] = [],
   pollBusy = false,
   renderedStamp = "",
   generation = 0;
-let favorites: { name: string; expression: string }[] = [];
-let queryExpression = "up",
+let favorites: { name: string; expression: string; language?: string }[] = [];
+let queryExpression = "",
   queryConnection = "";
 let chartCache = new Map<string, { result: QueryResult; at: number }>();
 const esc = (s: unknown) =>
@@ -88,16 +88,38 @@ const badge = (status: string) =>
   `<span class="badge ${cls(status)}">${esc(status || "Unknown")}</span>`;
 const snap = (id: string) => state.snapshots.find((s) => s.connectionId === id);
 const conn = (id: string) => state.connections.find((c) => c.id === id);
+const provider = (c: Connection | null | undefined) =>
+  state.providers.find((p) => p.kind === c?.kind);
+const queryLanguage = (c: Connection | null | undefined) =>
+  provider(c)?.query?.language || "Query";
+const hasTargets = (c: Connection | null | undefined) =>
+  ["builds", "queue", "deployments"].some((capability) =>
+    supports(c, capability),
+  );
+const favoriteOptions = () =>
+  favorites
+    .map((f, i) =>
+      (f.language || "PromQL") === queryLanguage(conn(queryConnection))
+        ? `<option value="${i}">${esc(f.name)}</option>`
+        : "",
+    )
+    .join("");
 const supports = (c: Connection | null | undefined, capability: string) =>
   !!state.providers
     .find((p) => p.kind === c?.kind)
     ?.capabilities.includes(capability);
-const fresh = (s: Snapshot | undefined) =>
-  !!s &&
-  !s.error &&
-  new Date(s.lastSuccess).getFullYear() > 2000 &&
-  Date.now() - Date.parse(s.lastSuccess) <
-    (supports(conn(s.connectionId), "rules") ? 60000 : 30000);
+const fresh = (s: Snapshot | undefined, capability?: string) => {
+  if (!s) return false;
+  const status = capability && s.modules ? s.modules[capability] : s;
+  const seconds = provider(conn(s.connectionId))?.pollSeconds || 30;
+  return (
+    !!status &&
+    !status.error &&
+    new Date(status.lastSuccess).getFullYear() > 2000 &&
+    Date.now() - Date.parse(status.lastSuccess) <
+      Math.max(30, seconds * 2) * 1000
+  );
+};
 const jobName = (b: Build) =>
   conn(b.connectionId)?.targets?.find((t) => t.id === b.job)?.name || b.job;
 const name = (id: string) => conn(id)?.name || `보존 연결 ${id.slice(0, 8)}`;
@@ -239,7 +261,7 @@ async function poll() {
     const stamp = JSON.stringify([
       state.snapshots,
       state.connections,
-      state.snapshots.map(fresh),
+      state.snapshots.map((s) => fresh(s)),
     ]);
     if (
       page === "overview" &&
@@ -312,7 +334,7 @@ function renderOverview() {
   );
   const ruleValid = (r: (typeof rules)[number]) =>
     !r.error &&
-    fresh(snap(r.connectionId)) &&
+    fresh(snap(r.connectionId), "metrics") &&
     r.result?.series?.some((s) =>
       s.points?.some(
         (p) => p.value !== null && Date.now() - p.time * 1000 < 120000,
@@ -323,18 +345,19 @@ function renderOverview() {
     (d) => d.sync !== "Synced" || d.health !== "Healthy",
   ).length;
   const partial = state.connections.filter((c) => !fresh(snap(c.id)));
-  const hasCI = state.connections.some(
-    (c) =>
-      supports(c, "builds") &&
-      snap(c.id)?.lastSuccess &&
-      new Date(snap(c.id)!.lastSuccess).getFullYear() > 2000,
-  );
-  const hasCD = state.connections.some(
-    (c) =>
-      supports(c, "deployments") &&
-      snap(c.id)?.lastSuccess &&
-      new Date(snap(c.id)!.lastSuccess).getFullYear() > 2000,
-  );
+  const hasObservation = (capability: string) =>
+    state.connections.some((c) => {
+      const s = snap(c.id);
+      const last = s?.modules
+        ? s.modules[capability]?.lastSuccess
+        : s?.lastSuccess;
+      return (
+        supports(c, capability) && !!last && new Date(last).getFullYear() > 2000
+      );
+    });
+  const hasCI = hasObservation("builds");
+  const hasCD = hasObservation("deployments");
+  const hasQueue = hasObservation("queue");
   const stat = (
     label: string,
     value: number | string,
@@ -342,7 +365,7 @@ function renderOverview() {
     color = "",
   ) =>
     `<div class="stat"><div class="label">${label}</div><div class="value ${color}">${value}</div><div class="hint">${hint}</div></div>`;
-  root.innerHTML = `<div class="page-head"><div><h2>운영 현황</h2><p>빌드, 배포, 관측 상태를 각 원본의 기준으로 확인합니다.</p></div><div class="toolbar"><select id="scope" aria-label="서비스 범위"><option value="*">모든 서비스</option>${scopes.map((s) => `<option ${s === scope ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select id="period" aria-label="조회 기간">${periods()}</select></div></div><div class="stats">${stat("실패한 빌드", hasCI ? failed : "—", "작업별 최신 완료 빌드", failed ? "bad" : "")}${stat("대기 중인 작업", hasCI ? queues.length : "—", "선택한 작업의 현재 queue")}${stat("배포 확인 필요", hasCD ? badDeploy : "—", "Sync · Health 별도 확인", badDeploy ? "warn" : "")}${stat("지표 이상 징후", validRules.length ? validRules.reduce((n, r) => n + r.breaches, 0) : "—", `판정 가능 ${validRules.length}/${rules.length}개 규칙 · 초과 시계열`, "warn")}</div>${partial.length ? `<div class="notice">${partial.map((c) => `${esc(c.name)}: ${esc(snap(c.id)?.error || "수집 대기 또는 조회 지연")}`).join(" · ")}<br><small>표시된 이전 값의 시각을 확인하세요. 조회 실패는 서비스 장애나 정상 상태를 뜻하지 않습니다.</small></div>` : ""}${state.snapshots
+  root.innerHTML = `<div class="page-head"><div><h2>운영 현황</h2><p>빌드, 배포, 관측 상태를 각 원본의 기준으로 확인합니다.</p></div><div class="toolbar"><select id="scope" aria-label="서비스 범위"><option value="*">모든 서비스</option>${scopes.map((s) => `<option ${s === scope ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select id="period" aria-label="조회 기간">${periods()}</select></div></div><div class="stats">${stat("실패한 빌드", hasCI ? failed : "—", "작업별 최신 완료 빌드", failed ? "bad" : "")}${stat("대기 중인 작업", hasQueue ? queues.length : "—", "선택한 작업의 현재 queue")}${stat("배포 확인 필요", hasCD ? badDeploy : "—", "Sync · Health 별도 확인", badDeploy ? "warn" : "")}${stat("지표 이상 징후", validRules.length ? validRules.reduce((n, r) => n + r.breaches, 0) : "—", `판정 가능 ${validRules.length}/${rules.length}개 규칙 · 초과 시계열`, "warn")}</div>${partial.length ? `<div class="notice">${partial.map((c) => `${esc(c.name)}: ${esc(snap(c.id)?.error || "수집 대기 또는 조회 지연")}`).join(" · ")}<br><small>표시된 이전 값의 시각을 확인하세요. 조회 실패는 서비스 장애나 정상 상태를 뜻하지 않습니다.</small></div>` : ""}${state.snapshots
     .filter((s) => s.storageError)
     .map(
       (s) =>
@@ -465,11 +488,14 @@ async function loadHistory() {
 }
 
 function renderMetrics() {
-  const metrics = state.connections.filter((c) => supports(c, "promql"));
-  if (!metrics.some((c) => c.id === queryConnection))
+  const metrics = state.connections.filter((c) => supports(c, "metrics"));
+  if (!metrics.some((c) => c.id === queryConnection)) {
     queryConnection = metrics[0]?.id || "";
+    queryExpression =
+      provider(conn(queryConnection))?.query?.defaultExpression || "";
+  }
   document.querySelector("#page")!.innerHTML =
-    `<div class="page-head"><div><h2>지표 탐색</h2><p>PromQL을 직접 실행합니다. 서비스 필터는 자동 적용되지 않습니다.</p></div><span class="chip">READ ONLY · 최대 24시간</span></div>${metrics.length ? `<section class="panel"><div class="panel-body query-editor"><div class="toolbar"><select id="query-connection" aria-label="Prometheus 연결">${metrics.map((c) => `<option value="${esc(c.id)}" ${c.id === queryConnection ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select><select id="query-period" aria-label="쿼리 조회 기간">${periods()}</select><select id="query-mode" aria-label="조회 방식"><option value="range">시계열 조회</option><option value="instant">현재값 조회</option></select><select id="favorite" aria-label="즐겨찾기"><option value="">즐겨찾기</option>${favorites.map((f, i) => `<option value="${i}">${esc(f.name)}</option>`).join("")}</select></div><label class="sr-only" for="query-expression">PromQL</label><textarea id="query-expression" spellcheck="false">${esc(queryExpression)}</textarea><div class="toolbar"><button id="run-query" class="primary">쿼리 실행</button><button id="save-query">즐겨찾기 저장</button><small>5초 실행 제한 · 최대 100개 시계열 · 약 600개 점/시계열</small></div></div></section><section id="query-result" class="results"></section>` : '<section class="panel empty"><h2>Prometheus 연결이 필요합니다</h2><p>연결 설정에서 주소와 인증정보를 등록하세요.</p><button data-add class="primary">연결 추가</button></section>'}`;
+    `<div class="page-head"><div><h2>지표 탐색</h2><p>${esc(queryLanguage(conn(queryConnection)))} 쿼리를 직접 실행합니다. 서비스 필터는 자동 적용되지 않습니다.</p></div><span class="chip">READ ONLY · 최대 24시간</span></div>${metrics.length ? `<section class="panel"><div class="panel-body query-editor"><div class="toolbar"><select id="query-connection" aria-label="지표 연결">${metrics.map((c) => `<option value="${esc(c.id)}" ${c.id === queryConnection ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select><select id="query-period" aria-label="쿼리 조회 기간">${periods()}</select><select id="query-mode" aria-label="조회 방식"><option value="range">시계열 조회</option><option value="instant">현재값 조회</option></select><select id="favorite" aria-label="즐겨찾기"><option value="">즐겨찾기</option>${favoriteOptions()}</select></div><label class="sr-only" for="query-expression">${esc(queryLanguage(conn(queryConnection)))}</label><textarea id="query-expression" spellcheck="false">${esc(queryExpression)}</textarea><div class="toolbar"><button id="run-query" class="primary">쿼리 실행</button><button id="save-query">즐겨찾기 저장</button><small>플랫폼의 질의 언어와 수집 범위를 확인하세요</small></div></div></section><section id="query-result" class="results"></section>` : '<section class="panel empty"><h2>시계열 지표 연결이 필요합니다</h2><p>연결 설정에서 주소와 인증정보를 등록하세요.</p><button data-add class="primary">연결 추가</button></section>'}`;
 }
 async function runQuery() {
   const btn = document.querySelector("#run-query") as HTMLButtonElement;
@@ -517,24 +543,83 @@ async function runQuery() {
 
 function renderConnections() {
   document.querySelector("#page")!.innerHTML =
-    `<div class="page-head"><div><h2>연결 설정</h2><p>도구마다 주소와 조회 권한을 등록합니다. 같은 종류를 여러 개 연결할 수 있습니다.</p></div><button data-add class="primary">＋ 연결 추가</button></div><div class="connection-grid">${state.connections.map((c) => `<section class="panel connection-card"><div class="panel-body"><span class="chip">${esc(c.kind.toUpperCase())}</span><h3 style="margin-top:12px">${esc(c.name)}</h3><p class="address">${esc(c.url)}</p><p><i class="dot ${fresh(snap(c.id)) ? "good" : "warn"}"></i>${esc(snap(c.id)?.error || (fresh(snap(c.id)) ? "연결됨" : "수집 대기 · 지연"))}</p><small>마지막 성공 ${date(snap(c.id)?.lastSuccess || "")}<br>${supports(c, "promql") ? `${(c.rules || []).filter((r) => r.enabled).length}개 규칙` : `${(c.targets || []).length}개 감시 대상`} · ${esc(c.auth)} 인증${c.hasSecret ? " · 자격 증명 저장됨" : ""}</small><div class="toolbar"><button data-edit="${esc(c.id)}">설정 편집</button><button class="ghost danger" data-delete="${esc(c.id)}">연결 삭제</button></div></div></section>`).join("") || '<section class="panel empty"><h2>등록된 연결이 없습니다.</h2><p>Jenkins, Argo CD, Prometheus 중 필요한 도구부터 추가하세요.</p></section>'}</div><div class="notice info" style="margin-top:20px">토큰은 Windows 자격 증명 저장소에 보관합니다. 연결을 삭제해도 수집한 빌드 이력은 남습니다. API 주소를 바꿀 때는 이력 혼합을 방지하기 위해 새 연결을 만드세요.</div>`;
+    `<div class="page-head"><div><h2>연결 설정</h2><p>도구마다 주소와 조회 권한을 등록합니다. 같은 종류를 여러 개 연결할 수 있습니다.</p></div><button data-add class="primary">＋ 연결 추가</button></div><div class="connection-grid">${state.connections.map((c) => `<section class="panel connection-card"><div class="panel-body"><span class="chip">${esc(c.kind.toUpperCase())}</span><h3 style="margin-top:12px">${esc(c.name)}</h3><p class="address">${esc(c.url)}</p><p><i class="dot ${fresh(snap(c.id)) ? "good" : "warn"}"></i>${esc(snap(c.id)?.error || (fresh(snap(c.id)) ? "연결됨" : "수집 대기 · 지연"))}</p><small>마지막 성공 ${date(snap(c.id)?.lastSuccess || "")}<br>${[hasTargets(c) ? `${(c.targets || []).length}개 감시 대상` : "", supports(c, "metrics") ? `${(c.rules || []).filter((r) => r.enabled).length}개 규칙` : ""].filter(Boolean).join(" · ")} · ${esc(c.auth)} 인증${c.hasSecret ? " · 자격 증명 저장됨" : ""}</small><div class="toolbar"><button data-edit="${esc(c.id)}">설정 편집</button><button class="ghost danger" data-delete="${esc(c.id)}">연결 삭제</button></div></div></section>`).join("") || '<section class="panel empty"><h2>등록된 연결이 없습니다.</h2><p>Jenkins, Argo CD, Prometheus 중 필요한 도구부터 추가하세요.</p></section>'}</div><div class="notice info" style="margin-top:20px">토큰은 Windows 자격 증명 저장소에 보관합니다. 연결을 삭제해도 수집한 빌드 이력은 남습니다. API 주소를 바꿀 때는 이력 혼합을 방지하기 위해 새 연결을 만드세요.</div>`;
 }
 const blankConnection = (): Connection => ({
   id: "",
-  kind: "jenkins",
+  kind: state.providers[0]?.kind || "",
   name: "",
   url: "",
   browserUrl: "",
-  auth: "basic",
+  auth: state.providers[0]?.defaultAuth || "none",
   username: "",
   caFile: "",
   targets: [],
   rules: [],
 });
+const authLabels: Record<string, string> = {
+  none: "인증 없음",
+  basic: "HTTP Basic · 사용자명 + API 토큰",
+  bearer: "Bearer · API 토큰",
+  "argocd-login": "Argo CD 로그인 · 사용자명 + 비밀번호",
+};
+function authOptions(c: Connection) {
+  const methods =
+    state.providers.find((p) => p.kind === c.kind)?.authMethods || [];
+  const legacy = methods.includes(c.auth)
+    ? ""
+    : `<option value="${esc(c.auth)}" selected disabled>기존 ${esc(c.auth)} · 지원하지 않음</option>`;
+  return (
+    legacy +
+    methods
+      .map(
+        (method) =>
+          `<option value="${esc(method)}" ${c.auth === method ? "selected" : ""}>${esc(authLabels[method] || method)}</option>`,
+      )
+      .join("")
+  );
+}
+function updateAuthControls() {
+  if (!editing) return;
+  const auth = (document.querySelector("[name=auth]") as HTMLSelectElement)
+    .value;
+  const username = document.querySelector(
+    "[name=username]",
+  ) as HTMLInputElement;
+  const secret = document.querySelector("[name=secret]") as HTMLInputElement;
+  const needsUser = auth === "basic" || auth === "argocd-login";
+  username.disabled = !needsUser;
+  username.required = needsUser;
+  username.parentElement!.style.display = needsUser ? "" : "none";
+  secret.disabled = auth === "none";
+  secret.parentElement!.style.display = auth === "none" ? "none" : "";
+  const unchanged =
+    editing.hasSecret &&
+    editing.auth === auth &&
+    (!needsUser || editing.username === username.value.trim());
+  secret.required = auth !== "none" && !unchanged;
+  secret.placeholder = unchanged
+    ? "저장된 값 유지 · 교체할 때만 입력"
+    : auth === "argocd-login"
+      ? "Argo CD 로컬 계정 비밀번호 입력"
+      : "API 토큰 입력";
+  document.querySelector("#secret-label")!.textContent =
+    auth === "argocd-login" ? "Argo CD 비밀번호" : "API 토큰";
+  document.querySelector("#auth-help")!.textContent =
+    auth === "argocd-login"
+      ? "Argo CD 로컬 계정으로 로그인한 뒤 발급받은 세션 토큰으로 조회합니다. 비밀번호는 Windows 자격 증명 저장소에 보관합니다. SSO 로그인은 지원하지 않습니다."
+      : auth === "bearer"
+        ? "발급받은 API 토큰을 입력하세요. Bearer 접두사와 계정 비밀번호는 입력하지 않습니다."
+        : auth === "none"
+          ? "인증 없이 조회하도록 설정된 API에서만 사용하세요."
+          : !provider(editing)?.authMethods.includes(auth)
+            ? "이 플랫폼에서 지원하지 않는 기존 인증 설정입니다. 지원하는 인증 방식을 선택하고 자격 증명을 다시 입력하세요."
+            : "HTTP Basic 인증에 사용할 사용자명과 API 토큰을 입력하세요.";
+}
 async function editConnection(id?: string) {
   editing = structuredClone(id ? conn(id)! : blankConnection());
   discovered = structuredClone(editing.targets || []);
-  if (!editing.rules?.length) editing.rules = await api.Presets();
+  if (!editing.rules?.length) editing.rules = await api.Presets(editing.kind);
   document.querySelector("#dialog-title")!.textContent = id
     ? "연결 편집"
     : "연결 추가";
@@ -546,18 +631,8 @@ async function editConnection(id?: string) {
       )
       .join(
         "",
-      )}</select></label><label>연결 이름<input name="name" required value="${esc(editing.name)}" placeholder="예: Production CI"></label><label class="span2">API 기본 주소<input name="url" type="url" required ${id ? "readonly" : ""} value="${esc(editing.url)}" placeholder="https://ci.example.com/jenkins"></label><label>인증<select name="auth">${[
-      ["none", "인증 없음"],
-      ["basic", "Basic · 사용자명 + 토큰"],
-      ["bearer", "Bearer 토큰"],
-    ]
-      .map(
-        ([v, l]) =>
-          `<option value="${v}" ${editing!.auth === v ? "selected" : ""}>${l}</option>`,
-      )
-      .join(
-        "",
-      )}</select></label><label>사용자명<input name="username" value="${esc(editing.username)}" autocomplete="off"></label><label class="span2">API 토큰 또는 비밀번호<input name="secret" type="password" autocomplete="new-password" placeholder="${editing.hasSecret ? "저장된 값 유지 · 교체할 때만 입력" : "조회용 자격증명 입력"}"></label><label>원본 화면 주소 · 선택<input name="browserUrl" type="url" value="${esc(editing.browserUrl)}" placeholder="API 주소와 다를 때"></label><label>사설 CA 파일 · 선택<div class="toolbar"><input name="caFile" style="flex:1" value="${esc(editing.caFile)}" placeholder="PEM 파일 경로"><button type="button" id="pick-ca">선택</button></div></label></div><div id="test-result" role="status" style="margin-top:15px"></div><div id="targets" class="targets"></div><div id="rules"></div>`;
+      )}</select></label><label>연결 이름<input name="name" required value="${esc(editing.name)}" placeholder="예: Production CI"></label><label class="span2">API 기본 주소<input name="url" type="url" required ${id ? "readonly" : ""} value="${esc(editing.url)}" placeholder="https://tools.example.com"></label><label>인증<select name="auth">${authOptions(editing)}</select></label><label>사용자명<input name="username" value="${esc(editing.username)}" autocomplete="off"></label><label class="span2"><span id="secret-label">API 토큰</span><input name="secret" type="password" autocomplete="new-password" placeholder="${editing.hasSecret ? "저장된 값 유지 · 교체할 때만 입력" : "조회용 자격증명 입력"}"></label><p id="auth-help" class="muted span2" role="note"></p><label>원본 화면 주소 · 선택<input name="browserUrl" type="url" value="${esc(editing.browserUrl)}" placeholder="API 주소와 다를 때"></label><label>사설 CA 파일 · 선택<div class="toolbar"><input name="caFile" style="flex:1" value="${esc(editing.caFile)}" placeholder="PEM 파일 경로"><button type="button" id="pick-ca">선택</button></div></label></div><div id="test-result" role="status" style="margin-top:15px"></div><div id="targets" class="targets"></div><div id="rules"></div>`;
+  updateAuthControls();
   renderTargets();
   renderRules();
   (
@@ -566,28 +641,53 @@ async function editConnection(id?: string) {
 }
 function renderTargets() {
   const el = document.querySelector("#targets")!;
-  if (supports(editing, "promql")) {
+  if (!hasTargets(editing)) {
     el.innerHTML = "";
     return;
   }
-  el.innerHTML = `<div class="subheading"><h3>감시 대상</h3><small>연결 검사 후 선택 · 서비스·환경은 선택 입력</small></div>${
+  el.innerHTML = `<div class="subheading"><h3>감시 대상</h3><small id="target-count" aria-live="polite">박스를 눌러 선택하세요</small></div>${
     discovered.length
-      ? discovered
+      ? `<div class="target-grid">${discovered
           .map((t, i) => {
             const saved = editing?.targets?.find((x) => x.id === t.id);
-            return `<div class="target-row"><input type="checkbox" name="target-${i}" aria-label="${esc(t.name)} 감시" ${saved ? "checked" : ""}><div><strong>${esc(t.name)}</strong><small style="display:block;overflow-wrap:anywhere">${esc(t.id)}</small></div><input name="service-${i}" aria-label="${esc(t.name)} 서비스" placeholder="서비스" value="${esc(saved?.service || "")}"><input name="environment-${i}" aria-label="${esc(t.name)} 환경" placeholder="환경" value="${esc(saved?.environment || "")}"></div>`;
+            return `<label class="target-card" title="${esc(t.name)} · ${esc(t.id)}"><input class="sr-only" type="checkbox" name="target-${i}" aria-label="${esc(t.name)} 감시" ${saved ? "checked" : ""}><span class="target-check" aria-hidden="true">✓</span><span class="target-text"><strong>${esc(t.name)}</strong><small>${esc(t.id)}</small></span></label>`;
           })
-          .join("")
+          .join(
+            "",
+          )}</div><details class="target-mapping"><summary>서비스·환경 설정 <span class="muted">· 선택 사항</span></summary><p class="muted">선택한 대상에만 입력합니다. 비워 두어도 감시할 수 있습니다.</p>${discovered
+          .map((t, i) => {
+            const saved = editing?.targets?.find((x) => x.id === t.id);
+            return `<div class="target-mapping-row" data-target-mapping="${i}" ${saved ? "" : "hidden"}><strong>${esc(t.name)}</strong><input name="service-${i}" aria-label="${esc(t.name)} 서비스" placeholder="서비스" value="${esc(saved?.service || "")}"><input name="environment-${i}" aria-label="${esc(t.name)} 환경" placeholder="환경" value="${esc(saved?.environment || "")}"></div>`;
+          })
+          .join("")}</details>`
       : '<p class="muted">연결 검사를 실행하면 조회 가능한 대상이 나타납니다.</p>'
   }`;
+  updateTargetSelection();
+}
+function updateTargetSelection() {
+  const selected = document.querySelectorAll(
+    ".target-card input:checked",
+  ).length;
+  const count = document.querySelector("#target-count");
+  if (count && discovered.length)
+    count.textContent = `${discovered.length}개 중 ${selected}개 선택 · 박스를 눌러 선택`;
+  document
+    .querySelectorAll<HTMLElement>("[data-target-mapping]")
+    .forEach((row) => {
+      row.hidden = !(
+        document.querySelector(
+          `[name="target-${row.dataset.targetMapping}"]`,
+        ) as HTMLInputElement
+      )?.checked;
+    });
 }
 function renderRules() {
   const el = document.querySelector("#rules")!;
-  if (!editing || !supports(editing, "promql")) {
+  if (!editing || !supports(editing, "metrics")) {
     el.innerHTML = "";
     return;
   }
-  el.innerHTML = `<div class="subheading"><h3>지표 규칙</h3><button type="button" id="add-rule">규칙 추가</button></div><p class="muted">필요한 메트릭이 수집되는 규칙만 활성화하세요. 조회 결과가 없으면 판정 불가로 표시합니다.</p>${(editing.rules || []).map((r, i) => `<div class="rule-row"><header><input type="checkbox" name="rule-enabled-${i}" aria-label="${esc(r.name)} 활성화" ${r.enabled ? "checked" : ""}><strong>${esc(r.name)}</strong></header><label class="sr-only" for="rule-expression-${i}">${esc(r.name)} PromQL</label><textarea id="rule-expression-${i}" name="rule-expression-${i}" spellcheck="false">${esc(r.expression)}</textarea><div class="rule-fields"><input name="rule-name-${i}" aria-label="규칙 이름" value="${esc(r.name)}"><input name="rule-threshold-${i}" aria-label="초과 임계값" type="number" step="any" value="${r.threshold}"><input name="rule-unit-${i}" aria-label="단위" value="${esc(r.unit)}" placeholder="단위"></div><input name="rule-description-${i}" aria-label="설명" style="width:100%" value="${esc(r.description)}"></div>`).join("")}`;
+  el.innerHTML = `<div class="subheading"><h3>지표 규칙</h3><button type="button" id="add-rule">규칙 추가</button></div><p class="muted">필요한 메트릭이 수집되는 규칙만 활성화하세요. 조회 결과가 없으면 판정 불가로 표시합니다.</p>${(editing.rules || []).map((r, i) => `<div class="rule-row"><header><input type="checkbox" name="rule-enabled-${i}" aria-label="${esc(r.name)} 활성화" ${r.enabled ? "checked" : ""}><strong>${esc(r.name)}</strong></header><label class="sr-only" for="rule-expression-${i}">${esc(r.name)} ${esc(queryLanguage(editing))}</label><textarea id="rule-expression-${i}" name="rule-expression-${i}" spellcheck="false">${esc(r.expression)}</textarea><div class="rule-fields"><input name="rule-name-${i}" aria-label="규칙 이름" value="${esc(r.name)}"><input name="rule-threshold-${i}" aria-label="초과 임계값" type="number" step="any" value="${r.threshold}"><input name="rule-unit-${i}" aria-label="단위" value="${esc(r.unit)}" placeholder="단위"></div><input name="rule-description-${i}" aria-label="설명" style="width:100%" value="${esc(r.description)}"></div>`).join("")}`;
 }
 function readConnection() {
   const f = new FormData(
@@ -605,7 +705,7 @@ function readConnection() {
   ] as const)
     c[k] = v(k).trim();
   c.kind = v("kind") || c.kind;
-  c.targets = supports(c, "promql")
+  c.targets = !hasTargets(c)
     ? []
     : discovered.flatMap((t, i) =>
         f.has(`target-${i}`)
@@ -618,7 +718,7 @@ function readConnection() {
             ]
           : [],
       );
-  c.rules = !supports(c, "promql")
+  c.rules = !supports(c, "metrics")
     ? []
     : (editing?.rules || []).map((r, i) => ({
         ...r,
@@ -690,17 +790,22 @@ document.addEventListener("click", async (e) => {
         document.querySelector("#query-expression") as HTMLTextAreaElement
       ).value.trim();
       if (!expression) return;
-      favorites = favorites.filter((f) => f.expression !== expression);
-      favorites.unshift({ name: expression.slice(0, 65), expression });
+      const language = queryLanguage(conn(queryConnection));
+      favorites = favorites.filter(
+        (f) =>
+          f.expression !== expression || (f.language || "PromQL") !== language,
+      );
+      favorites.unshift({
+        name: expression.slice(0, 65),
+        expression,
+        language,
+      });
       favorites = favorites.slice(0, 30);
       await api.SavePreference("favorites", JSON.stringify(favorites));
       toast("즐겨찾기에 저장했습니다.");
       const select = document.querySelector("#favorite") as HTMLSelectElement;
       select.innerHTML =
-        '<option value="">즐겨찾기</option>' +
-        favorites
-          .map((f, i) => `<option value="${i}">${esc(f.name)}</option>`)
-          .join("");
+        '<option value="">즐겨찾기</option>' + favoriteOptions();
     }
     if (button.id === "pick-ca") {
       const path = await api.PickCA();
@@ -713,7 +818,7 @@ document.addEventListener("click", async (e) => {
       editing.rules.push({
         id: crypto.randomUUID(),
         name: "Custom rule",
-        expression: "up",
+        expression: provider(editing)?.query?.defaultExpression || "",
         threshold: 0,
         unit: "",
         description: "",
@@ -735,7 +840,7 @@ document.addEventListener("click", async (e) => {
         editing = input.connection;
         renderTargets();
         document.querySelector("#test-result")!.innerHTML =
-          `<span class="good">연결 성공 · ${discovered.length}개 대상${supports(input.connection, "promql") ? " · 쿼리 API 확인" : ""}</span>`;
+          `<span class="good">연결 성공 · ${discovered.length}개 대상${supports(input.connection, "metrics") ? " · 쿼리 API 확인" : ""}</span>`;
       } catch (err) {
         document.querySelector("#test-result")!.innerHTML =
           `<span class="bad">${esc(err)}</span>`;
@@ -775,6 +880,7 @@ document.addEventListener("submit", async (e) => {
 });
 document.addEventListener("change", async (e) => {
   const el = e.target as HTMLInputElement;
+  if (el.matches(".target-card input")) updateTargetSelection();
   if (el.id === "scope" || el.id === "period") {
     if (el.id === "scope") scope = el.value;
     else period = Number(el.value);
@@ -785,15 +891,34 @@ document.addEventListener("change", async (e) => {
     (document.querySelector("#query-expression") as HTMLTextAreaElement).value =
       favorites[Number(el.value)].expression;
   }
+  if (el.id === "query-connection") {
+    queryConnection = el.value;
+    queryExpression =
+      provider(conn(queryConnection))?.query?.defaultExpression || "";
+    generation++;
+    dispose();
+    renderMetrics();
+  }
   if (el.name === "kind" && editing) {
     editing.kind = el.value;
     discovered = [];
     editing.targets = [];
-    (document.querySelector("[name=auth]") as HTMLSelectElement).value =
+    editing.rules = await api.Presets(editing.kind);
+    editing.auth =
       state.providers.find((p) => p.kind === el.value)?.defaultAuth || "none";
+    (document.querySelector("[name=auth]") as HTMLSelectElement).innerHTML =
+      authOptions(editing);
+    (document.querySelector("[name=secret]") as HTMLInputElement).value = "";
+    updateAuthControls();
     renderTargets();
     renderRules();
   }
+  if (el.name === "auth") {
+    (document.querySelector("[name=secret]") as HTMLInputElement).value = "";
+    document.querySelector("#test-result")!.textContent = "";
+    updateAuthControls();
+  }
+  if (el.name === "username") updateAuthControls();
 });
 window.addEventListener("focus", () => {
   api.Refresh().catch(() => {});
