@@ -4,6 +4,7 @@ import type {
   QueryResult,
   Rule,
   State,
+  Observation,
 } from "../shared/types";
 import type { Bridge } from "./types";
 
@@ -106,6 +107,8 @@ export function previewBridge(empty = false): Bridge {
     observed: now,
   }));
   const preferences = new Map<string, string>();
+  const observed = (id: string): Observation => ({ connectionId: id, revision: connections.find(c => c.id === id)?.revision || "preview", requestId: crypto.randomUUID(), observedAt: new Date().toISOString(), windowStart: 0, windowEnd: 0, outcome: "partial", completeness: "unknown", diagnostics: ["브라우저 예시 데이터 · 전체 데이터 여부 미확인"] });
+  const traceID = "0123456789abcdef0123456789abcdef";
   return {
     async GetState(): Promise<State> {
       return {
@@ -138,6 +141,7 @@ export function previewBridge(empty = false): Bridge {
             query: { language: "PromQL", defaultExpression: "up", presets },
             authMethods: ["none", "basic", "bearer"],
           },
+          ...["loki", "tempo"].map(kind => ({ kind, name: kind === "loki" ? "Loki" : "Tempo", category: "observability", capabilities: [kind === "loki" ? "logs" : "traces"], onDemand: true, defaultAuth: "none", authMethods: ["none", "basic", "bearer"], queries: { [kind === "loki" ? "logs" : "traces"]: { language: kind === "loki" ? "LogQL" : "TraceQL", defaultExpression: kind === "loki" ? '{service_name="api"}' : '{ true }', maxResults: kind === "loki" ? 500 : 100 } } })),
         ],
         snapshots: connections.map((c) => ({
           connectionId: c.id,
@@ -216,12 +220,22 @@ export function previewBridge(empty = false): Bridge {
     async TestConnection({ connection }) {
       if (!connection.url.startsWith("http"))
         throw new Error("Use an HTTP(S) URL");
+      if (["loki", "tempo"].includes(connection.kind)) return { targets: [], discovery: "unsupported", warning: "" };
       return { targets: connection.kind === "prometheus" ? [] : structuredClone(targets), discovery: "complete", warning: "" };
     },
     async Query(_id, q) {
       if (q.expression.includes("invalid"))
         throw new Error("Query or request rejected by upstream");
       return result(q.expression === "up" ? 1 : 42, q.start > 0);
+    },
+    async SearchLogs(id, q) {
+      return { observation: { ...observed(id), windowStart: q.start, windowEnd: q.end }, entries: [{ timestampNs: String(BigInt(q.end - 1) * 1000000000n + 123456789n), line: "GET /payments 200", labels: { service_name: "payments" }, fields: { trace_id: traceID } }] };
+    },
+    async SearchTraces(id, q) {
+      return { observation: { ...observed(id), windowStart: q.start, windowEnd: q.end }, traces: [{ traceId: traceID, rootService: "payments", rootName: "GET /payments", startNs: String(BigInt(q.end - 1) * 1000000000n), durationMs: 12 }] };
+    },
+    async Trace(id, traceId) {
+      return { observation: observed(id), traceId, spans: [{ traceId, spanId: "0102030405060708", parentSpanId: "", name: "GET /payments", service: "payments", startNs: String(BigInt(Date.now()) * 1000000n), durationNs: "12000000", attributes: [], resource: [], details: { status: { code: 1 } }, scope: {} }] };
     },
     async Presets(kind) {
       return kind === "prometheus" ? structuredClone(presets) : [];

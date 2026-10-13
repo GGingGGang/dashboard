@@ -10,6 +10,7 @@ import type {
 import { api, browserPreview } from "./bridge";
 import { esc, date, elapsed, badge } from "./shared/format";
 import { chart, dispose } from "./components/chart";
+import { mountExplorer } from "./components/explorer";
 import "./style.css";
 
 let state: State = {
@@ -98,6 +99,8 @@ document.querySelector("#app")!.innerHTML =
     ["overview", "운영 현황"],
     ["history", "빌드 이력"],
     ["metrics", "지표 탐색"],
+    ["logs", "로그 탐색"],
+    ["traces", "트레이스 탐색"],
     ["connections", "연결 설정"],
   ]
     .map(([id, label]) => `<button data-page="${id}">${label}</button>`)
@@ -125,7 +128,13 @@ async function changePage(next: string) {
   if (page === "overview") renderOverview();
   if (page === "history") await renderHistory();
   if (page === "metrics") renderMetrics();
+  if (page === "logs" || page === "traces") renderExplorer();
   if (page === "connections") renderConnections();
+}
+function renderExplorer() {
+  const gen = generation;
+  const kind = page as "logs" | "traces";
+  mountExplorer(document.querySelector<HTMLElement>("#page")!, kind, state, () => generation === gen && page === kind, connectionVersion);
 }
 function updateChrome() {
   document.querySelector("#connection-count")!.textContent =
@@ -141,11 +150,13 @@ async function poll() {
   pollBusy = true;
   try {
     const next = await api.GetState();
-    if (JSON.stringify(next.connections) !== JSON.stringify(state.connections)) {
+    const connectionsChanged = JSON.stringify(next.connections) !== JSON.stringify(state.connections);
+    if (connectionsChanged) {
       chartCache.clear();
       queryRequest++;
     }
     state = next;
+    if (connectionsChanged && (page === "logs" || page === "traces")) { generation++; renderExplorer(); }
     updateChrome();
     const stamp = JSON.stringify([
       state.snapshots,
@@ -442,7 +453,7 @@ async function runQuery() {
 
 function renderConnections() {
   document.querySelector("#page")!.innerHTML =
-    `<div class="page-head"><div><h2>연결 설정</h2><p>도구마다 주소와 조회 권한을 등록합니다. 같은 종류를 여러 개 연결할 수 있습니다.</p></div><button data-add class="primary">＋ 연결 추가</button></div><div class="connection-grid">${state.connections.map((c) => `<section class="panel connection-card"><div class="panel-body"><span class="chip">${esc(c.kind.toUpperCase())}</span><h3 style="margin-top:12px">${esc(c.name)}</h3><p class="address">${esc(c.url)}</p><p><i class="dot ${fresh(snap(c.id)) ? "good" : "warn"}"></i>${esc(snap(c.id)?.error || (fresh(snap(c.id)) ? "연결됨" : "수집 대기 · 지연"))}</p><small>마지막 성공 ${date(snap(c.id)?.lastSuccess || "")}<br>${[hasTargets(c) ? `${(c.targets || []).length}개 감시 대상` : "", supports(c, "metrics") ? `${(c.rules || []).filter((r) => r.enabled).length}개 규칙` : ""].filter(Boolean).join(" · ")} · ${esc(c.auth)} 인증${c.hasSecret ? " · 자격 증명 저장됨" : ""}</small><div class="toolbar"><button data-edit="${esc(c.id)}">설정 편집</button><button class="ghost danger" data-delete="${esc(c.id)}">연결 삭제</button></div></div></section>`).join("") || '<section class="panel empty"><h2>등록된 연결이 없습니다.</h2><p>Jenkins, Argo CD, Prometheus 중 필요한 도구부터 추가하세요.</p></section>'}</div><div class="notice info" style="margin-top:20px">토큰은 Windows 자격 증명 저장소에 보관합니다. 연결을 삭제해도 수집한 빌드 이력은 남습니다. API 주소를 바꿀 때는 이력 혼합을 방지하기 위해 새 연결을 만드세요.</div>`;
+    `<div class="page-head"><div><h2>연결 설정</h2><p>도구마다 주소와 조회 권한을 등록합니다. 같은 종류를 여러 개 연결할 수 있습니다.</p></div><button data-add class="primary">＋ 연결 추가</button></div><div class="connection-grid">${state.connections.map((c) => `<section class="panel connection-card"><div class="panel-body"><span class="chip">${esc(c.kind.toUpperCase())}</span><h3 style="margin-top:12px">${esc(c.name)}</h3><p class="address">${esc(c.url)}</p><p><i class="dot ${fresh(snap(c.id)) ? "good" : "warn"}"></i>${esc(provider(c)?.onDemand ? "On demand" : snap(c.id)?.error || (fresh(snap(c.id)) ? "연결됨" : "수집 대기 · 지연"))}</p><small>마지막 성공 ${date(snap(c.id)?.lastSuccess || "")}<br>${[hasTargets(c) ? `${(c.targets || []).length}개 감시 대상` : "", supports(c, "metrics") ? `${(c.rules || []).filter((r) => r.enabled).length}개 규칙` : ""].filter(Boolean).join(" · ")} · ${esc(c.auth)} 인증${c.hasSecret ? " · 자격 증명 저장됨" : ""}</small><div class="toolbar"><button data-edit="${esc(c.id)}">설정 편집</button><button class="ghost danger" data-delete="${esc(c.id)}">연결 삭제</button></div></div></section>`).join("") || '<section class="panel empty"><h2>등록된 연결이 없습니다.</h2><p>Jenkins, Argo CD, Prometheus 중 필요한 도구부터 추가하세요.</p></section>'}</div><div class="notice info" style="margin-top:20px">토큰은 Windows 자격 증명 저장소에 보관합니다. 연결을 삭제해도 수집한 빌드 이력은 남습니다. API 주소를 바꿀 때는 이력 혼합을 방지하기 위해 새 연결을 만드세요.</div>`;
 }
 const blankConnection = (): Connection => ({
   id: "",
@@ -532,6 +543,7 @@ async function editConnection(id?: string) {
       .join(
         "",
       )}</select></label><label>연결 이름<input name="name" required value="${esc(editing.name)}" placeholder="예: Production CI"></label><label class="span2">API 기본 주소<input name="url" type="url" required ${id ? "readonly" : ""} value="${esc(editing.url)}" placeholder="https://tools.example.com"></label><label>인증<select name="auth">${authOptions(editing)}</select></label><label>사용자명<input name="username" value="${esc(editing.username)}" autocomplete="off"></label><label class="span2"><span id="secret-label">API 토큰</span><input name="secret" type="password" autocomplete="new-password" placeholder="${editing.hasSecret ? "저장된 값 유지 · 교체할 때만 입력" : "조회용 자격증명 입력"}"></label><p id="auth-help" class="muted span2" role="note"></p><label>원본 화면 주소 · 선택<input name="browserUrl" type="url" value="${esc(editing.browserUrl)}" placeholder="API 주소와 다를 때"></label><label>사설 CA 파일 · 선택<div class="toolbar"><input name="caFile" style="flex:1" value="${esc(editing.caFile)}" placeholder="PEM 파일 경로"><button type="button" id="pick-ca">선택</button></div></label></div><div id="test-result" role="status" style="margin-top:15px"></div><div id="targets" class="targets"></div><div id="rules"></div>`;
+  document.querySelector("#connection-fields .form-grid")!.insertAdjacentHTML("beforeend", `<label>테넌트 ID · 선택<input name="tenant" maxlength="150" ${id ? "readonly" : ""} value="${esc(editing.tenant || "")}" placeholder="서버에서 테넌트를 구분할 때"></label>`);
   updateAuthControls();
   renderTargets();
   renderRules();
@@ -602,6 +614,7 @@ function readConnection() {
     "auth",
     "username",
     "caFile",
+    "tenant",
   ] as const)
     c[k] = v(k).trim();
   c.kind = v("kind") || c.kind;
@@ -847,7 +860,7 @@ async function init() {
     const saved = await api.GetPreference("view");
     if (saved) {
       const v = JSON.parse(saved);
-      if (["overview", "history", "metrics", "connections"].includes(v.page))
+      if (["overview", "history", "metrics", "logs", "traces", "connections"].includes(v.page))
         page = v.page;
       if (typeof v.scope === "string") scope = v.scope;
       if ([900, 3600, 21600, 86400].includes(v.period)) period = v.period;

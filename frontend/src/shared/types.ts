@@ -23,6 +23,7 @@ export type Connection = {
   auth: string;
   username: string;
   caFile: string;
+  tenant?: string;
   targets: Target[];
   rules: Rule[];
   hasSecret?: boolean;
@@ -103,10 +104,24 @@ export type State = {
     pollSeconds?: number;
     onDemand?: boolean;
     query?: { language: string; defaultExpression: string; presets: Rule[] };
+    queries?: Record<string, { language: string; defaultExpression: string; modes?: string[]; maxResults?: number }>;
   }[];
   error: string;
   demo: boolean;
 };
+
+export type SearchRequest = Query & { limit: number };
+export type Observation = {
+  connectionId: string; revision: string; requestId: string; observedAt: string;
+  windowStart: number; windowEnd: number; outcome: "success" | "partial" | "error";
+  completeness: "complete" | "unknown" | "truncated"; diagnostics: string[];
+};
+export type LogResult = { observation: Observation; entries: { timestampNs: string; line: string; labels: Record<string,string>; fields: Record<string,string> }[] };
+export type TraceSearchResult = { observation: Observation; traces: { traceId: string; rootService: string; rootName: string; startNs: string; durationMs: number }[] };
+export type TraceResult = { observation: Observation; traceId: string; spans: {
+  traceId: string; spanId: string; parentSpanId: string; name: string; service: string;
+  startNs: string; durationNs: string; attributes: unknown[]; resource: unknown[]; details: unknown; scope: unknown;
+}[] };
 export type HistoryFilter = {
   connectionId: string;
   job: string;

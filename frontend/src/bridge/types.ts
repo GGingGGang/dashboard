@@ -1,4 +1,5 @@
 import type { State, Connection, ConnectionTest, Query, QueryResult, HistoryFilter, Rule, Build } from "../shared/types";
+import type { SearchRequest, LogResult, TraceSearchResult, TraceResult } from "../shared/types";
 
 export type Bridge = {
   GetState(): Promise<State>;
@@ -12,6 +13,9 @@ export type Bridge = {
     secret: string;
   }): Promise<ConnectionTest>;
   Query(id: string, q: Query): Promise<QueryResult>;
+  SearchLogs(id: string, q: SearchRequest): Promise<LogResult>;
+  SearchTraces(id: string, q: SearchRequest): Promise<TraceSearchResult>;
+  Trace(id: string, traceId: string): Promise<TraceResult>;
   Presets(kind: string): Promise<Rule[]>;
   History(
     f: HistoryFilter,

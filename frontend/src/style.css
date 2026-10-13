@@ -877,3 +877,12 @@ code {
     max-width: 100%;
   }
 }
+/* Observation payloads are text, never interpreted markup. */
+.event-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 360px; overflow: auto; }
+.event-time { min-width: 175px; max-width: 230px; overflow-wrap: anywhere; }
+.trace-link { overflow-wrap: anywhere; text-align: left; max-width: 100%; }
+.span-detail { padding: 14px; border-bottom: 1px solid var(--border, #ddd); overflow-wrap: anywhere; }
+.span-detail dd { margin-left: 0; }
+#explore-limit { width: 90px; }
+#trace-id { flex: 1; min-width: 160px; }
+#explore-result:empty, #trace-result:empty { display: none; }
