@@ -1,5 +1,26 @@
 # Verification record
 
+## Provider architecture rebuild - 2026-10-13
+
+Baseline: `77c9868dbd88185203da87ca4cee7235fccde3f2`, initially clean tracked worktree. This record covers the uncommitted application/lifecycle/ownership/discovery changes described in ARCHITECTURE.md. Environment: Windows amd64, Go 1.25.7, Node 24.13.0, Wails CLI 2.11.0.
+
+| Check | Actual result |
+| --- | --- |
+| Baseline | `go test ./... -count=1` passed before changes. |
+| Repository checks | `scripts/test.ps1` passed: npm ci, TypeScript/Vite production build, Playwright 20/20 (wide and compact), Go tests, go vet. |
+| Final race/static checks | `go test -race ./... -count=1` and `go vet ./...` passed on the final source, including the additional registry ownership/cleanup test. |
+| Lifecycle and ownership | New fixtures check on-demand idle behavior, absent/denied discovery with direct reads, edit/delete/credential replacement cancelling late success, provider Close, shutdown of active/queued operations, admission deadlines, immutable nested snapshots, and registry metadata ownership/rejected-instance cleanup. |
+| Browser regressions | Late query success and failure cannot overwrite the selected connection. Discovery denial preserves selected targets and permits direct target entry/save. Existing 14 browser cases also pass. |
+| Windows executable | `scripts/build.ps1` passed; `build/bin/idp-dashboard.exe`, 15,746,560 bytes. The first attempt hit transient npm EBUSY on a node_modules file; retry completed without a source change. |
+| Native demo | Rebuilt executable ran with --demo and a separate LOCALAPPDATA under build/bin/smoke-data-*. Wails/WebView2 displayed three connections, collected builds/deployments, CPU 42 and memory 67, and range charts through real Go adapters against synthetic loopback APIs. The test process exited after a normal window close. Native connection-editor interaction was not completed. |
+| Diff hygiene | `git diff --check` passed. |
+
+The frontend bundle remains above Vite's 500 kB warning threshold (590.43 kB / 201.29 kB gzip); this was not treated as a build failure. An early race run overlapped frontend asset replacement and failed the root embed step; subsequent runs use stable built assets.
+
+IDP_TEST_KEYRING and IDP_TEST_PROMETHEUS_URL were unset for test execution. OS keyring acceptance and live infrastructure checks were skipped. Existing user database/credentials were not opened by these tests; native verification used its own temporary demo store. No schema/archive migration, external plugin runtime, new vendor, or real-infrastructure acceptance is claimed. Historical evidence below is retained separately and is not evidence for this rebuild.
+
+## Historical record - 2026-10-03
+
 Recorded on 2026-10-03. Results below describe this working tree on one Windows x64 PC. Fixtures, native smoke checks, and live integration checks are intentionally distinguished.
 
 ## Performed

@@ -206,6 +206,7 @@ export function previewBridge(empty = false): Bridge {
     async SaveConnection({ connection }) {
       const c = structuredClone(connection);
       c.id ||= `preview-${Date.now()}`;
+      c.revision = crypto.randomUUID();
       connections = connections.filter((x) => x.id !== c.id).concat(c);
       return c.id;
     },
@@ -215,7 +216,7 @@ export function previewBridge(empty = false): Bridge {
     async TestConnection({ connection }) {
       if (!connection.url.startsWith("http"))
         throw new Error("Use an HTTP(S) URL");
-      return connection.kind === "prometheus" ? [] : structuredClone(targets);
+      return { targets: connection.kind === "prometheus" ? [] : structuredClone(targets), discovery: "complete", warning: "" };
     },
     async Query(_id, q) {
       if (q.expression.includes("invalid"))

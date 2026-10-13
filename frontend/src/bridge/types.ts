@@ -1,4 +1,4 @@
-import type { State, Connection, Target, Query, QueryResult, HistoryFilter, Rule, Build } from "../shared/types";
+import type { State, Connection, ConnectionTest, Query, QueryResult, HistoryFilter, Rule, Build } from "../shared/types";
 
 export type Bridge = {
   GetState(): Promise<State>;
@@ -10,7 +10,7 @@ export type Bridge = {
   TestConnection(input: {
     connection: Connection;
     secret: string;
-  }): Promise<Target[]>;
+  }): Promise<ConnectionTest>;
   Query(id: string, q: Query): Promise<QueryResult>;
   Presets(kind: string): Promise<Rule[]>;
   History(

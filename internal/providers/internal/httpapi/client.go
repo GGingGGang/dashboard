@@ -25,6 +25,11 @@ type Client struct {
 	secret     string
 }
 
+func (a *Client) Close() error {
+	a.client.CloseIdleConnections()
+	return nil
+}
+
 func New(c platform.Connection, secret string) (*Client, error) {
 	if err := platform.ValidateConnection(c); err != nil {
 		return nil, err

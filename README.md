@@ -14,7 +14,7 @@ Requirements: Windows x64 and Microsoft Edge WebView2 Runtime. The executable em
 .\build\bin\idp-dashboard.exe --demo
 ```
 
-In **연결 설정 → 연결 추가**, select a provider, enter its base URL and authentication, then choose **연결 검사 · 대상 찾기**. Select jobs or applications to watch and save. Prometheus connections instead have optional query rules. Multiple connections of each provider are supported.
+In **연결 설정 → 연결 추가**, select a provider, enter its base URL and authentication, then choose **연결 검사 · 대상 찾기**. Select jobs or applications to watch and save. Prometheus connections instead have optional query rules. Multiple connections of each provider are supported. If automatic discovery is unavailable or denied, the editor preserves selected targets and allows direct entry of a known target ID; target access is still checked by the upstream API.
 
 Demo mode exercises the same Go HTTP adapters and SQLite collector as real connections. Its sample data is explicitly labelled. It creates a separate database and never connects to your infrastructure unless you manually add a real connection. Demo connections are reset on each launch.
 

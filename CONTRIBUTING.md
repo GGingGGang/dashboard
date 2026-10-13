@@ -4,7 +4,7 @@ The application owns polling, credentials, local persistence, and UI state. Each
 
 ## Existing contract
 
-Every provider implements `Check(context.Context)` and `Discover(context.Context)`. Compose any of these independent capabilities:
+Every provider implements `Check(context.Context)`. Implement the optional `TargetDiscoverer` interface only when target listing is supported; a discovery permission failure must not mean the provider lacks its read capability. Compose any of these independent capabilities:
 
 - `BuildSource` (`builds`): paged `Builds` and individual `Build`. The current archive contract uses numeric build identifiers and millisecond timestamps. Return normalized states (`RUNNING`, `SUCCESS`, `FAILURE`, `UNSTABLE`, `ABORTED`, `NOT_BUILT`, or `UNKNOWN`) and preserve the upstream state in `RawStatus`.
 - `QueueSource` (`queue`): current queue entries. This is optional for build providers.
@@ -18,7 +18,7 @@ For CI, `Builds` receives an offset, returns up to 100 newest-first rows and ind
 ## Add an implementation
 
 1. Add `internal/providers/<name>/<name>.go` and keep its `*_test.go` fixtures beside it. Implement the relevant interfaces from `internal/platform`. Use `internal/providers/internal/httpapi` for read requests, authentication, verified TLS, cancellation, timeouts, bounded responses, and sanitized errors. The sole current POST is the explicitly selected Argo CD session login. Construct API paths from validated identifiers; never request an arbitrary URL supplied by upstream JSON.
-2. Export `Definition() platform.Definition` containing `Info` and a `Create(Connection, secret)` factory. Include an optional `Validate(Connection) error` for provider-specific constraints checked before saving and construction. Add its import and `Definition()` to `internal/providers/builtin.go`; custom builds can instead pass it to `NewApp(demoMode, definition)` in `main.go`. Include name, category, default authentication, supported `AuthMethods`, capabilities, `PollSeconds`, and query metadata when applicable. No collector or storage switch needs a new provider name. The registry rejects duplicate names and mismatches between interfaces and declared capabilities.
+2. Export `Definition() platform.Definition` containing `Info` and a `Create(Connection, secret)` factory. Include an optional `Validate(Connection) error` for provider-specific constraints checked before saving and construction. Add its import and `Definition()` to `internal/providers/builtin.go`; custom builds can instead pass it to `NewApp(demoMode, definition)` in `main.go`. Include name, category, default authentication, supported `AuthMethods`, capabilities, `PollSeconds`, and query metadata when applicable. Set `OnDemand: true` for providers that should run only on explicit requests; existing built-ins retain polling. Implement `io.Closer` when an instance owns transport/session resources, and cooperate with context cancellation. No collector or storage switch needs a new provider name. The registry rejects duplicate names and mismatches between interfaces and declared capabilities.
 3. Add `httptest` fixtures for successful reads, authentication failures, missing data, unknown states, cancellation, and the relevant pagination/identifier edge cases. Tests must not require personal infrastructure or real tokens.
 4. For CI/CD, test the collector and archive behavior with the new adapter. For monitoring, prove the documented result limits and empty/stale/error handling. Add a regression case when changing semantics.
 5. Document supported API versions, permissions, configuration, unsupported fields, and any external prerequisites. Distinguish fixture tests from real integration results.
@@ -37,7 +37,8 @@ Do not add provider-specific polling to the frontend, bake in cluster addresses,
 | A genuinely new data capability | `internal/platform`, `internal/collector`, and its frontend view |
 | Archive behavior or backup | `internal/storage` |
 | Chart display | `frontend/src/components/chart.ts` |
-| Wails bridge and browser fixture | `frontend/src/bridge` |
+| Application policy and request lifecycle | `internal/application` (no Wails, concrete storage, keyring, or provider imports) |
+| Wails bridge and browser fixture | `app.go`, `frontend/src/bridge` |
 
 The package layout and allowed dependency direction are documented in [ARCHITECTURE.md](ARCHITECTURE.md). `go test ./...` checks production import boundaries so a provider cannot silently take a dependency on storage or another adapter. Keep one root `go.mod`; these are source-level packages in the same application, not independently versioned plugins.
 
@@ -46,3 +47,8 @@ Use [Jenkins](internal/providers/jenkins/jenkins.go) for build/queue examples, [
 ## Evidence for review
 
 Include the problem, before/after behavior, a small reproducible fixture, tests run, and remaining limits. Source loss, duplicate observations, number reuse, and failed queries are more useful evidence than screenshots alone. The current results are recorded in `VERIFICATION.md`; update that record only for checks actually performed.
+
+
+Provider factories validate local configuration and create local clients; they must not perform unbounded network work. The host calls Close after the last instance call, including registry rejection. Return stable data until the call completes; later sequential reuse is supported through host copies, concurrent mutation is not. Descriptor calls require no network or credentials.
+
+The Wails `TestConnection` method returns `{targets, discovery, warning}`. Only `discovery: complete` establishes successful listing, including an empty list. `unsupported` and `failed` permit direct target entry after a successful probe. Update Go, TypeScript, preview fixtures, and browser tests together when changing this contract.

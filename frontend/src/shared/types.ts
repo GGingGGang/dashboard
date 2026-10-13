@@ -26,6 +26,7 @@ export type Connection = {
   targets: Target[];
   rules: Rule[];
   hasSecret?: boolean;
+  revision?: string;
 };
 export type Build = {
   connectionId: string;
@@ -61,6 +62,11 @@ export type QueryResult = {
   warnings: string[];
   truncated: boolean;
 };
+export type ConnectionTest = {
+  targets: Target[];
+  discovery: "complete" | "unsupported" | "failed";
+  warning: string;
+};
 export type Snapshot = {
   modules?: Record<
     string,
@@ -95,6 +101,7 @@ export type State = {
     defaultAuth: string;
     authMethods: string[];
     pollSeconds?: number;
+    onDemand?: boolean;
     query?: { language: string; defaultExpression: string; presets: Rule[] };
   }[];
   error: string;

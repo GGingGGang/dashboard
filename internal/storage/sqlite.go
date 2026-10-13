@@ -17,23 +17,9 @@ type Store struct {
 	db   *sql.DB
 	Path string
 }
-type SavedConnection struct {
-	Connection platform.Connection
-	SecretRef  string
-}
-type HistoryFilter struct {
-	ConnectionID string `json:"connectionId"`
-	Job          string `json:"job"`
-	Status       string `json:"status"`
-	Since        int64  `json:"since"`
-	Until        int64  `json:"until"`
-	Offset       int    `json:"offset"`
-}
-type HistoryPage struct {
-	Builds []platform.Build `json:"builds"`
-	Total  int              `json:"total"`
-	Size   int64            `json:"size"`
-}
+type SavedConnection = platform.SavedConnection
+type HistoryFilter = platform.HistoryFilter
+type HistoryPage = platform.HistoryPage
 
 func OpenStore(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -84,7 +70,7 @@ func (s *Store) Connections() ([]SavedConnection, error) {
 		if err = json.Unmarshal([]byte(raw), &c); err != nil {
 			return nil, err
 		}
-		out = append(out, SavedConnection{c, ref})
+		out = append(out, SavedConnection{Connection: c, SecretRef: ref})
 	}
 	return out, rows.Err()
 }

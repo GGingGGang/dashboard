@@ -35,6 +35,7 @@ func NewRegistry(definitions ...Definition) (*Registry, error) {
 		if slices.Contains(d.Info.Capabilities, "metrics") && (d.Info.Query == nil || d.Info.Query.Language == "") {
 			return nil, errors.New("Metrics provider requires query metadata")
 		}
+		d.Info = d.Info.Clone()
 		r.definitions[d.Info.Kind] = d
 	}
 	return r, nil
@@ -43,7 +44,7 @@ func NewRegistry(definitions ...Definition) (*Registry, error) {
 func (r *Registry) Infos() []ProviderInfo {
 	out := make([]ProviderInfo, 0, len(r.definitions))
 	for _, d := range r.definitions {
-		out = append(out, d.Info)
+		out = append(out, d.Info.Clone())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -51,7 +52,7 @@ func (r *Registry) Infos() []ProviderInfo {
 
 func (r *Registry) Info(kind string) (ProviderInfo, bool) {
 	d, ok := r.definitions[kind]
-	return d.Info, ok
+	return d.Info.Clone(), ok
 }
 
 func (r *Registry) Validate(c Connection) error {
@@ -78,7 +79,7 @@ func (r *Registry) New(c Connection, secret string) (Provider, error) {
 	if c.Auth != "none" && secret == "" {
 		return nil, errors.New("Authentication secret is missing")
 	}
-	p, err := r.definitions[c.Kind].Create(c, secret)
+	p, err := r.definitions[c.Kind].Create(c.Clone(), secret)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +100,13 @@ func (r *Registry) New(c Connection, secret string) (Provider, error) {
 		actual = append(actual, "metrics")
 	}
 	if len(actual) == 0 {
+		_ = CloseProvider(p)
 		return nil, errors.New("Provider implements no collection capability")
 	}
 	info, _ := r.Info(c.Kind)
 	for _, capability := range []string{"builds", "queue", "deployments", "metrics"} {
 		if slices.Contains(info.Capabilities, capability) != slices.Contains(actual, capability) {
+			_ = CloseProvider(p)
 			return nil, fmt.Errorf("Provider capability mismatch: %s", capability)
 		}
 	}

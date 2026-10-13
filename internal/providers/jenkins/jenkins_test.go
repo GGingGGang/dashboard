@@ -52,7 +52,7 @@ func TestJenkinsFolderAndPagination(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	targets, e := p.Discover(context.Background())
+	targets, e := p.(platform.TargetDiscoverer).Discover(context.Background())
 	if e != nil || len(targets) != 1 {
 		t.Fatalf("%v %v", targets, e)
 	}

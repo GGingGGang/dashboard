@@ -43,6 +43,8 @@ func TestPackageBoundaries(t *testing.T) {
 				allowed = standard
 			case pkg == "collector" || strings.HasPrefix(pkg, "collector/"):
 				allowed = standard || dep == prefix+"platform"
+			case pkg == "application" || strings.HasPrefix(pkg, "application/"):
+				allowed = standard || dep == prefix+"platform" || dep == prefix+"collector"
 			case pkg == "storage" || strings.HasPrefix(pkg, "storage/"):
 				allowed = !local || dep == prefix+"platform"
 			case pkg == "providers":

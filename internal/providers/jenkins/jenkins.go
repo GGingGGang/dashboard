@@ -178,3 +178,5 @@ func Definition() platform.Definition {
 		},
 	}
 }
+
+func (p *Jenkins) Close() error { return p.api.Close() }

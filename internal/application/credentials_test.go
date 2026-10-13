@@ -1,4 +1,4 @@
-package main
+package application
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"idp-dashboard/internal/demo"
 	"idp-dashboard/internal/platform"
+	"idp-dashboard/internal/providers"
 	"idp-dashboard/internal/storage"
 )
 
@@ -21,14 +22,13 @@ func TestWindowsCredentialLifecycle(t *testing.T) {
 	}
 	base, closeDemo := demo.Start()
 	defer closeDemo()
-	a := NewApp(false)
-	a.ctx = context.Background()
-	var err error
-	a.store, err = storage.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	store, err := storage.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	registry, _ := platform.NewRegistry(providers.BuiltinDefinitions()...)
+	a := New(context.Background(), store, testKeyring{}, registry, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.shutdown(a.ctx)
+	defer a.Close()
 	c := platform.Connection{Kind: "prometheus", Name: "Credential lifecycle test", URL: base + "/prometheus", Auth: "bearer"}
 	secret := "test-only-" + randomID()
 	id, err := a.SaveConnection(ConnectionInput{Connection: c, Secret: secret})
@@ -40,7 +40,7 @@ func TestWindowsCredentialLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer keyring.Delete("IDPDashboard", saved.SecretRef)
-	got, err := credential(saved)
+	got, err := a.credential(saved)
 	if err != nil || got != secret {
 		t.Fatal("credential round trip failed")
 	}
@@ -64,14 +64,13 @@ func TestWindowsCredentialLifecycle(t *testing.T) {
 }
 
 func TestChangedAuthenticationRequiresNewSecret(t *testing.T) {
-	a := NewApp(false)
-	a.ctx = context.Background()
-	var err error
-	a.store, err = storage.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	store, err := storage.OpenStore(filepath.Join(t.TempDir(), "test.db"))
+	registry, _ := platform.NewRegistry(providers.BuiltinDefinitions()...)
+	a := New(context.Background(), store, testKeyring{}, registry, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.store.Close()
+	defer a.Close()
 	legacy := platform.Connection{ID: "legacy", Kind: "argocd", Name: "Argo", URL: "http://localhost", Auth: "basic", Username: "admin"}
 	if err = a.store.SaveConnection(legacy, "unused-test-reference"); err != nil {
 		t.Fatal(err)
@@ -85,3 +84,9 @@ func TestChangedAuthenticationRequiresNewSecret(t *testing.T) {
 		t.Fatal("save reused a credential across authentication methods")
 	}
 }
+
+type testKeyring struct{}
+
+func (testKeyring) Get(ref string) (string, error) { return keyring.Get("IDPDashboard", ref) }
+func (testKeyring) Set(ref, value string) error    { return keyring.Set("IDPDashboard", ref, value) }
+func (testKeyring) Delete(ref string) error        { return keyring.Delete("IDPDashboard", ref) }

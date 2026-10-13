@@ -32,6 +32,9 @@ let favorites: { name: string; expression: string; language?: string }[] = [];
 let queryExpression = "",
   queryConnection = "";
 let chartCache = new Map<string, { result: QueryResult; at: number }>();
+let queryRequest = 0;
+let connectionTestRequest = 0;
+const connectionVersion = (id: string) => JSON.stringify(conn(id) || null);
 const snap = (id: string) => state.snapshots.find((s) => s.connectionId === id);
 const conn = (id: string) => state.connections.find((c) => c.id === id);
 const provider = (c: Connection | null | undefined) =>
@@ -103,6 +106,7 @@ document.querySelector("#app")!.innerHTML =
     )}</nav><div id="banner"></div><main id="page"></main><footer class="footer"><span>LOCAL FIRST · READ ONLY</span><span>앱 실행 중 수집 · 빌드 요약은 이 PC에 보존</span></footer></div><div id="toast" class="toast" role="status" aria-live="polite"></div><dialog id="connection-dialog" class="dialog" aria-labelledby="dialog-title"><form id="connection-form"><header class="dialog-header"><h2 id="dialog-title">연결 추가</h2><button type="button" data-close aria-label="닫기">×</button></header><div class="dialog-body" id="connection-fields"></div><footer class="dialog-footer"><button type="button" id="test-connection">연결 검사 · 대상 찾기</button><button type="submit" class="primary">저장</button></footer></form></dialog>`;
 
 async function changePage(next: string) {
+  queryRequest++;
   page = next;
   dispose();
   generation++;
@@ -136,7 +140,12 @@ async function poll() {
   if (pollBusy) return;
   pollBusy = true;
   try {
-    state = await api.GetState();
+    const next = await api.GetState();
+    if (JSON.stringify(next.connections) !== JSON.stringify(state.connections)) {
+      chartCache.clear();
+      queryRequest++;
+    }
+    state = next;
     updateChrome();
     const stamp = JSON.stringify([
       state.snapshots,
@@ -296,7 +305,8 @@ function renderOverview() {
       ?.focus({ preventScroll: true });
   window.scrollTo(0, scrollY);
   rules.slice(0, 2).forEach(async (r, i) => {
-    const key = `${r.connectionId}:${r.rule.expression}:${period}`;
+    const version = connectionVersion(r.connectionId);
+    const key = JSON.stringify([r.connectionId, version, r.rule.expression, period]);
     const cached = chartCache.get(key);
     try {
       let result = cached?.result;
@@ -307,6 +317,11 @@ function renderOverview() {
           start: end - period,
           end,
         });
+        if (gen !== generation || page !== "overview" || version !== connectionVersion(r.connectionId)) return;
+        for (const [oldKey, entry] of chartCache) {
+          if (Date.now() - entry.at > 30000) chartCache.delete(oldKey);
+        }
+        if (chartCache.size >= 32) chartCache.delete(chartCache.keys().next().value!);
         chartCache.set(key, { result, at: Date.now() });
       }
       if (gen !== generation || page !== "overview") return;
@@ -318,7 +333,7 @@ function renderOverview() {
         (result!.warnings || []).join(" · ") ||
         `${result!.series?.length || 0}개 시계열 · 최근 ${period / 60}분`;
     } catch (e) {
-      if (gen === generation) {
+      if (gen === generation && page === "overview" && version === connectionVersion(r.connectionId)) {
         const el = document.querySelector(`#overview-note-${i}`);
         if (el) el.textContent = `추이 조회 실패: ${e}`;
       }
@@ -378,6 +393,7 @@ function renderMetrics() {
     `<div class="page-head"><div><h2>지표 탐색</h2><p>${esc(queryLanguage(conn(queryConnection)))} 쿼리를 직접 실행합니다. 서비스 필터는 자동 적용되지 않습니다.</p></div><span class="chip">READ ONLY · 최대 24시간</span></div>${metrics.length ? `<section class="panel"><div class="panel-body query-editor"><div class="toolbar"><select id="query-connection" aria-label="지표 연결">${metrics.map((c) => `<option value="${esc(c.id)}" ${c.id === queryConnection ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select><select id="query-period" aria-label="쿼리 조회 기간">${periods()}</select><select id="query-mode" aria-label="조회 방식"><option value="range">시계열 조회</option><option value="instant">현재값 조회</option></select><select id="favorite" aria-label="즐겨찾기"><option value="">즐겨찾기</option>${favoriteOptions()}</select></div><label class="sr-only" for="query-expression">${esc(queryLanguage(conn(queryConnection)))}</label><textarea id="query-expression" spellcheck="false">${esc(queryExpression)}</textarea><div class="toolbar"><button id="run-query" class="primary">쿼리 실행</button><button id="save-query">즐겨찾기 저장</button><small>플랫폼의 질의 언어와 수집 범위를 확인하세요</small></div></div></section><section id="query-result" class="results"></section>` : '<section class="panel empty"><h2>시계열 지표 연결이 필요합니다</h2><p>연결 설정에서 주소와 인증정보를 등록하세요.</p><button data-add class="primary">연결 추가</button></section>'}`;
 }
 async function runQuery() {
+  const request = ++queryRequest;
   const btn = document.querySelector("#run-query") as HTMLButtonElement;
   btn.disabled = true;
   const gen = generation;
@@ -387,6 +403,9 @@ async function runQuery() {
   queryConnection = (
     document.querySelector("#query-connection") as HTMLSelectElement
   ).value;
+  const connectionID = queryConnection;
+  const version = connectionVersion(connectionID);
+  const current = () => request === queryRequest && gen === generation && page === "metrics" && version === connectionVersion(connectionID);
   period = Number(
     (document.querySelector("#query-period") as HTMLSelectElement).value,
   );
@@ -400,7 +419,7 @@ async function runQuery() {
       start: instant ? 0 : end - period,
       end,
     });
-    if (gen !== generation || page !== "metrics") return;
+    if (!current()) return;
     dispose();
     document.querySelector("#query-result")!.innerHTML =
       `${r.warnings?.map((w) => `<div class="notice">${esc(w)}</div>`).join("") || ""}<div class="panel"><header class="panel-head"><h2>조회 결과</h2><small>${r.series?.length || 0}개 시계열 · ${date(Date.now())}</small></header><div class="panel-body"><div id="query-chart" class="chart big-chart"></div></div><div class="table-wrap"><table><thead><tr><th>라벨</th><th>마지막 값</th><th>샘플 시각</th></tr></thead><tbody>${(
@@ -413,7 +432,7 @@ async function runQuery() {
         .join("")}</tbody></table></div></div>`;
     chart(document.querySelector("#query-chart") as HTMLElement, r, true);
   } catch (e) {
-    if (page === "metrics")
+    if (current())
       document.querySelector("#query-result")!.innerHTML =
         `<div class="notice error">${esc(e)}</div>`;
   } finally {
@@ -497,6 +516,7 @@ function updateAuthControls() {
             : "HTTP Basic 인증에 사용할 사용자명과 API 토큰을 입력하세요.";
 }
 async function editConnection(id?: string) {
+  connectionTestRequest++;
   editing = structuredClone(id ? conn(id)! : blankConnection());
   discovered = structuredClone(editing.targets || []);
   if (!editing.rules?.length) editing.rules = await api.Presets(editing.kind);
@@ -541,7 +561,7 @@ function renderTargets() {
           })
           .join("")}</details>`
       : '<p class="muted">연결 검사를 실행하면 조회 가능한 대상이 나타납니다.</p>'
-  }`;
+  }<div class="toolbar"><label>대상 ID 직접 입력<input id="manual-target" placeholder="원본 시스템의 대상 ID"></label><button type="button" id="add-target">대상 추가</button></div>`;
   updateTargetSelection();
 }
 function updateTargetSelection() {
@@ -706,22 +726,38 @@ document.addEventListener("click", async (e) => {
       });
       renderRules();
     }
+    if (button.id === "add-target") {
+      const id = (document.querySelector("#manual-target") as HTMLInputElement).value.trim();
+      if (!id || !editing) return;
+      editing = readConnection().connection;
+      if (!discovered.some((t) => t.id === id)) discovered.push({ id, name: id, service: "", environment: "" });
+      if (!editing.targets.some((t) => t.id === id)) editing.targets.push({ id, name: id, service: "", environment: "" });
+      renderTargets();
+    }
     if (button.id === "test-connection") {
       const form = document.querySelector(
         "#connection-form",
       ) as HTMLFormElement;
       if (!form.reportValidity()) return;
       button.disabled = true;
+      const request = ++connectionTestRequest;
+      const input = readConnection();
+      const fingerprint = JSON.stringify(input);
+      const current = () => request === connectionTestRequest && (document.querySelector("#connection-dialog") as HTMLDialogElement).open && fingerprint === JSON.stringify(readConnection());
       document.querySelector("#test-result")!.innerHTML =
         '<span class="muted">연결과 조회 권한을 확인하고 있습니다…</span>';
       try {
-        const input = readConnection();
-        discovered = await api.TestConnection(input);
+        const result = await api.TestConnection(input);
+        if (!current()) return;
+        discovered = [...result.targets, ...input.connection.targets.filter((t) => !result.targets.some((found) => found.id === t.id))];
         editing = input.connection;
         renderTargets();
         document.querySelector("#test-result")!.innerHTML =
-          `<span class="good">연결 성공 · ${discovered.length}개 대상${supports(input.connection, "metrics") ? " · 쿼리 API 확인" : ""}</span>`;
+          result.discovery === "complete"
+            ? `<span class="good">연결 성공 · ${result.targets.length}개 대상${supports(input.connection, "metrics") ? " · 쿼리 API 확인" : ""}</span>`
+            : `<span class="warn">연결 확인 · ${result.discovery === "unsupported" ? "대상 자동 검색 미지원" : `대상 검색 실패: ${esc(result.warning)}`} · 대상 ID를 직접 입력할 수 있습니다.</span>`;
       } catch (err) {
+        if (!current()) return;
         document.querySelector("#test-result")!.innerHTML =
           `<span class="bad">${esc(err)}</span>`;
       } finally {
@@ -744,6 +780,8 @@ document.addEventListener("submit", async (e) => {
     button.disabled = true;
     try {
       await api.SaveConnection(readConnection());
+      chartCache.clear();
+      queryRequest++;
       (
         document.querySelector("#connection-dialog") as HTMLDialogElement
       ).close();

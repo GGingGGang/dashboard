@@ -27,6 +27,8 @@ type Target struct {
 }
 
 type ProviderInfo struct {
+	// OnDemand prevents registration from starting background collection.
+	OnDemand     bool       `json:"onDemand,omitempty"`
 	Kind         string     `json:"kind"`
 	Name         string     `json:"name"`
 	Category     string     `json:"category"`
@@ -57,6 +59,10 @@ type QueueSource interface {
 
 type Provider interface {
 	Check(context.Context) error
+}
+
+// TargetDiscoverer is optional; discovery permissions do not define read access.
+type TargetDiscoverer interface {
 	Discover(context.Context) ([]Target, error)
 }
 

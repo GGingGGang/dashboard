@@ -152,3 +152,5 @@ func validate(c platform.Connection) error {
 	}
 	return nil
 }
+
+func (p *ArgoCD) Close() error { return p.api.Close() }

@@ -151,3 +151,5 @@ func Definition() platform.Definition {
 		},
 	}
 }
+
+func (p *Prometheus) Close() error { return p.api.Close() }

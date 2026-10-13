@@ -28,7 +28,7 @@ type Collector struct {
 }
 
 func NewCollector(c platform.Connection, p platform.Provider, s BuildArchive) *Collector {
-	return &Collector{Connection: c, Provider: p, Store: s, cursors: map[string]int{}, previous: platform.Snapshot{ConnectionID: c.ID, Builds: []platform.Build{}, Queue: []platform.QueueItem{}, Deployments: []platform.Deployment{}, Rules: []platform.RuleResult{}}}
+	return &Collector{Connection: c.Clone(), Provider: p, Store: s, cursors: map[string]int{}, previous: platform.Snapshot{ConnectionID: c.ID, Builds: []platform.Build{}, Queue: []platform.QueueItem{}, Deployments: []platform.Deployment{}, Rules: []platform.RuleResult{}}}
 }
 
 func (c *Collector) Poll(ctx context.Context) platform.Snapshot {
@@ -76,8 +76,8 @@ func (c *Collector) Poll(ctx context.Context) platform.Snapshot {
 	if next.Error == "" {
 		next.LastSuccess = time.Now()
 	}
-	c.previous = next
-	return next
+	c.previous = next.Clone()
+	return c.previous.Clone()
 }
 
 func (c *Collector) selected(id string, capability string) bool {
