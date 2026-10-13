@@ -107,8 +107,8 @@
 
 1. `9aadaf1` — Application·포트 분리, lifecycle/소유권/발견 권한 테스트. Go race/vet, UI 20개, Windows 빌드 검증 완료.
 2. 이 문서 — 기능별 계약·현황·수용 조건 기록.
-3. 예정 — capability metadata, tenant binding, 결과 envelope와 LogSource/TraceSource.
-4. 예정 — Loki/Tempo HTTP 어댑터, Desktop/UI, fixture와 회귀 테스트.
+3. 구현 — capability별 query metadata, tenant binding, 결과 envelope와 LogSource/TraceSource, Loki/Tempo HTTP 어댑터와 Desktop 메서드. Go fixture로 로그 중복/ns, Tempo base64/hex ID·typed 속성, 부분 결과·revision 취소를 검증했다. UI 연결 전까지 F12/F13은 부분 구현이다.
+4. 예정 — Loki/Tempo UI, fixture와 회귀 테스트.
 5. 예정 — 최종 검증 결과와 남은 항목 갱신.
 
 현재 live Loki/Tempo 서버와 실제 Windows 자격증명에 대한 검증은 수행하지 않았다. fixture 통과를 제품 버전 전체의 호환성 보장으로 해석하지 않는다.

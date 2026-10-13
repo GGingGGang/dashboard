@@ -74,6 +74,9 @@ func (a *Client) Request(ctx context.Context, method, path string, q url.Values,
 		return errors.New("Invalid API request")
 	}
 	req.Header.Set("Accept", "application/json")
+	if a.connection.Tenant != "" {
+		req.Header.Set("X-Scope-OrgID", a.connection.Tenant)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

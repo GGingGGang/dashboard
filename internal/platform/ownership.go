@@ -66,7 +66,14 @@ func (p ProviderInfo) Clone() ProviderInfo {
 	if p.Query != nil {
 		q := *p.Query
 		q.Presets = slices.Clone(q.Presets)
+		q.Modes = slices.Clone(q.Modes)
 		p.Query = &q
+	}
+	p.Queries = maps.Clone(p.Queries)
+	for k, q := range p.Queries {
+		q.Presets = slices.Clone(q.Presets)
+		q.Modes = slices.Clone(q.Modes)
+		p.Queries[k] = q
 	}
 	return p
 }

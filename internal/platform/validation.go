@@ -8,6 +8,14 @@ import (
 
 // ValidateConnection checks provider-independent connection fields.
 func ValidateConnection(c Connection) error {
+	if len(c.Tenant) > 150 || strings.ContainsAny(c.Tenant, "\r\n|") {
+		return errors.New("Use one tenant ID of at most 150 characters")
+	}
+	for _, char := range c.Tenant {
+		if char < 33 || char > 126 {
+			return errors.New("Tenant ID must contain printable ASCII without spaces")
+		}
+	}
 	if strings.TrimSpace(c.Name) == "" {
 		return errors.New("Connection name is required")
 	}

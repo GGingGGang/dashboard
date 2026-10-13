@@ -131,6 +131,25 @@ func (a *App) Presets(kind string) []platform.Rule {
 	}
 	return []platform.Rule{}
 }
+
+func (a *App) SearchLogs(id string, q platform.SearchRequest) (platform.LogResult, error) {
+	if err := a.ready(); err != nil {
+		return platform.LogResult{}, err
+	}
+	return a.service.SearchLogs(id, q)
+}
+func (a *App) SearchTraces(id string, q platform.SearchRequest) (platform.TraceSearchResult, error) {
+	if err := a.ready(); err != nil {
+		return platform.TraceSearchResult{}, err
+	}
+	return a.service.SearchTraces(id, q)
+}
+func (a *App) Trace(id, traceID string) (platform.TraceResult, error) {
+	if err := a.ready(); err != nil {
+		return platform.TraceResult{}, err
+	}
+	return a.service.Trace(id, traceID)
+}
 func (a *App) History(f platform.HistoryFilter) (platform.HistoryPage, error) {
 	if err := a.ready(); err != nil {
 		return platform.HistoryPage{}, err

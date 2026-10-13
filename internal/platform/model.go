@@ -14,6 +14,7 @@ type Connection struct {
 	Auth       string   `json:"auth"`
 	Username   string   `json:"username"`
 	CAFile     string   `json:"caFile"`
+	Tenant     string   `json:"tenant,omitempty"`
 	Targets    []Target `json:"targets"`
 	Rules      []Rule   `json:"rules"`
 }
@@ -28,21 +29,24 @@ type Target struct {
 
 type ProviderInfo struct {
 	// OnDemand prevents registration from starting background collection.
-	OnDemand     bool       `json:"onDemand,omitempty"`
-	Kind         string     `json:"kind"`
-	Name         string     `json:"name"`
-	Category     string     `json:"category"`
-	Capabilities []string   `json:"capabilities"`
-	DefaultAuth  string     `json:"defaultAuth"`
-	AuthMethods  []string   `json:"authMethods"`
-	Query        *QueryInfo `json:"query,omitempty"`
-	PollSeconds  int        `json:"pollSeconds"`
+	OnDemand     bool                 `json:"onDemand,omitempty"`
+	Kind         string               `json:"kind"`
+	Name         string               `json:"name"`
+	Category     string               `json:"category"`
+	Capabilities []string             `json:"capabilities"`
+	DefaultAuth  string               `json:"defaultAuth"`
+	AuthMethods  []string             `json:"authMethods"`
+	Query        *QueryInfo           `json:"query,omitempty"`
+	Queries      map[string]QueryInfo `json:"queries,omitempty"`
+	PollSeconds  int                  `json:"pollSeconds"`
 }
 
 type QueryInfo struct {
-	Language          string `json:"language"`
-	DefaultExpression string `json:"defaultExpression"`
-	Presets           []Rule `json:"presets"`
+	Modes             []string `json:"modes,omitempty"`
+	MaxResults        int      `json:"maxResults,omitempty"`
+	Language          string   `json:"language"`
+	DefaultExpression string   `json:"defaultExpression"`
+	Presets           []Rule   `json:"presets"`
 }
 
 // Capabilities are independently implemented and may coexist on one provider.

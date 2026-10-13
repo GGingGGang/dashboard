@@ -263,8 +263,8 @@ func (a *Service) SaveConnection(input ConnectionInput) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if old.Connection.Kind != c.Kind || old.Connection.URL != c.URL {
-			return "", errors.New("Create a new connection when changing provider or API address to keep archives separate")
+		if old.Connection.Kind != c.Kind || old.Connection.URL != c.URL || old.Connection.Tenant != c.Tenant {
+			return "", errors.New("Create a new connection when changing provider, API address or tenant to keep archives separate")
 		}
 	}
 	ref := old.SecretRef
@@ -342,7 +342,7 @@ func (a *Service) TestConnection(input ConnectionInput) (result ConnectionTest, 
 	}()
 	secret := input.Secret
 	if secret == "" && input.Connection.ID != "" && input.Connection.Auth != "none" {
-		if saved.Connection.URL != input.Connection.URL || saved.Connection.Kind != input.Connection.Kind {
+		if saved.Connection.URL != input.Connection.URL || saved.Connection.Kind != input.Connection.Kind || saved.Connection.Tenant != input.Connection.Tenant {
 			return ConnectionTest{}, errors.New("Enter a new credential when testing another address")
 		}
 		if saved.Connection.Auth != input.Connection.Auth || ((input.Connection.Auth == "basic" || input.Connection.Auth == "argocd-login") && saved.Connection.Username != input.Connection.Username) {
@@ -431,7 +431,7 @@ func (a *Service) begin(id string, timeout time.Duration) (context.Context, func
 			a.start(c)
 			r = a.runners[id]
 		}
-		parent = r.ctx
+		parent = context.WithValue(r.ctx, revisionKey{}, r.revision)
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	a.operations.Add(1)

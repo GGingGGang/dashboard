@@ -35,6 +35,11 @@ func NewRegistry(definitions ...Definition) (*Registry, error) {
 		if slices.Contains(d.Info.Capabilities, "metrics") && (d.Info.Query == nil || d.Info.Query.Language == "") {
 			return nil, errors.New("Metrics provider requires query metadata")
 		}
+		for _, capability := range []string{"logs", "traces"} {
+			if slices.Contains(d.Info.Capabilities, capability) && d.Info.Queries[capability].Language == "" {
+				return nil, fmt.Errorf("%s provider requires query metadata", capability)
+			}
+		}
 		d.Info = d.Info.Clone()
 		r.definitions[d.Info.Kind] = d
 	}
@@ -99,12 +104,18 @@ func (r *Registry) New(c Connection, secret string) (Provider, error) {
 	if _, ok := p.(Monitoring); ok {
 		actual = append(actual, "metrics")
 	}
+	if _, ok := p.(LogSource); ok {
+		actual = append(actual, "logs")
+	}
+	if _, ok := p.(TraceSource); ok {
+		actual = append(actual, "traces")
+	}
 	if len(actual) == 0 {
 		_ = CloseProvider(p)
 		return nil, errors.New("Provider implements no collection capability")
 	}
 	info, _ := r.Info(c.Kind)
-	for _, capability := range []string{"builds", "queue", "deployments", "metrics"} {
+	for _, capability := range []string{"builds", "queue", "deployments", "metrics", "logs", "traces"} {
 		if slices.Contains(info.Capabilities, capability) != slices.Contains(actual, capability) {
 			_ = CloseProvider(p)
 			return nil, fmt.Errorf("Provider capability mismatch: %s", capability)

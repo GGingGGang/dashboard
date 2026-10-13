@@ -5,12 +5,14 @@ import (
 	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers/argocd"
 	"idp-dashboard/internal/providers/jenkins"
+	"idp-dashboard/internal/providers/loki"
 	"idp-dashboard/internal/providers/prometheus"
+	"idp-dashboard/internal/providers/tempo"
 )
 
 // BuiltinDefinitions is the single list to update when contributing an adapter.
 func BuiltinDefinitions() []platform.Definition {
-	return []platform.Definition{jenkins.Definition(), argocd.Definition(), prometheus.Definition()}
+	return []platform.Definition{jenkins.Definition(), argocd.Definition(), prometheus.Definition(), loki.Definition(), tempo.Definition()}
 }
 
 func DefaultRegistry() *platform.Registry {
