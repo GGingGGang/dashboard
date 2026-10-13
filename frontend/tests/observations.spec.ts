@@ -9,8 +9,8 @@ test.beforeEach(async ({ page }) => {
     w.go = { main: { App: {
       GetPreference: async () => "", SavePreference: async () => {}, Refresh: async () => {},
       GetState: async () => ({ connections: [connection("first", "loki"), connection("second", "loki"), connection("tempo", "tempo")], snapshots: [], providers: [
-        { kind: "loki", name: "Loki", capabilities: ["logs"], queries: { logs: { language: "LogQL", defaultExpression: '{job="api"}', maxResults: 500 } } },
-        { kind: "tempo", name: "Tempo", capabilities: ["traces"], queries: { traces: { language: "TraceQL", defaultExpression: '{ true }', maxResults: 100 } } },
+        { kind: "loki", name: "Loki", onDemand: true, capabilities: ["logs"], queries: { logs: { language: "LogQL", defaultExpression: '{job="api"}', maxResults: 500 } } },
+        { kind: "tempo", name: "Tempo", onDemand: true, capabilities: ["traces"], queries: { traces: { language: "TraceQL", defaultExpression: '{ true }', maxResults: 100 } } },
       ], demo: true, error: "" }),
       SearchLogs: async (id: string) => {
         if (w.delay && id === "first") return new Promise((resolve, reject) => { w.finishOld = (fail: boolean) => fail ? reject(new Error("obsolete-error")) : resolve(logs("obsolete-result")); });
@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("logs retain ns and treat payload as text", async ({ page }) => {
+  await expect(page.locator("#page")).not.toContainText("수집 대기 또는 조회 지연");
   await page.getByRole("button", { name: "로그 탐색", exact: true }).click();
   await page.getByRole("button", { name: "검색", exact: true }).click();
   await expect(page.locator("#explore-result")).toContainText("1700000000123456789 ns");

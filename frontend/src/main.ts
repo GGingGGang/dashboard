@@ -244,7 +244,7 @@ function renderOverview() {
   const badDeploy = deploys.filter(
     (d) => d.sync !== "Synced" || d.health !== "Healthy",
   ).length;
-  const partial = state.connections.filter((c) => !fresh(snap(c.id)));
+  const partial = state.connections.filter((c) => !provider(c)?.onDemand && !fresh(snap(c.id)));
   const hasObservation = (capability: string) =>
     state.connections.some((c) => {
       const s = snap(c.id);
@@ -307,7 +307,7 @@ function renderOverview() {
           })
           .join("")}</div></section>`
       : ""
-  }<div class="footer">${state.connections.map((c) => `<span><i class="dot ${fresh(snap(c.id)) ? "good" : "warn"}"></i>${esc(c.name)} · ${date(snap(c.id)?.lastSuccess || "")}${snap(c.id)?.backfillPending ? " · 과거 기록 수집 중" : ""}</span>`).join("")}</div>`;
+  }<div class="footer">${state.connections.filter(c => !provider(c)?.onDemand).map((c) => `<span><i class="dot ${fresh(snap(c.id)) ? "good" : "warn"}"></i>${esc(c.name)} · ${date(snap(c.id)?.lastSuccess || "")}${snap(c.id)?.backfillPending ? " · 과거 기록 수집 중" : ""}</span>`).join("")}</div>`;
   if (focusID) document.getElementById(focusID)?.focus({ preventScroll: true });
   else if (detailID)
     document

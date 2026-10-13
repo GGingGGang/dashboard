@@ -1,6 +1,6 @@
 # IDP Dashboard
 
-A Windows desktop dashboard for build history, deployment status, and PromQL checks. Connect to your existing tools by URL and read-only credentials. No dashboard server, Kubernetes controller, or OCI account is required.
+A Windows desktop dashboard for build history, deployment status, metrics, logs, and traces. Connect to your existing tools by URL and read-only credentials. No dashboard server, Kubernetes controller, or OCI account is required.
 
 This is an early implementation of an operations view for a developer platform, not a complete internal developer platform. The interface is Korean; contributor documentation is English.
 
@@ -25,6 +25,14 @@ Demo mode exercises the same Go HTTP adapters and SQLite collector as real conne
 | Jenkins | Folder/multibranch discovery, build summaries, queue, historical backfill | Controller base URL, typically Basic auth with username/API token |
 | Argo CD | Application discovery, Sync, Health, revision, last operation | Server base URL and bearer token, or explicit local-account session login |
 | Prometheus | Instant and range queries, threshold rules | Prometheus base URL; none, Basic, or bearer authentication |
+| Loki | Bounded LogQL log search | Loki query base URL; optional tenant ID; none, Basic, or bearer authentication |
+| Tempo | TraceQL search and trace-by-ID detail | Tempo query base URL; optional tenant ID; none, Basic, or bearer authentication |
+
+For Loki and Tempo, save the connection and open **로그 탐색** or **트레이스 탐색**. These connections run on demand. Queries cover up to 24 hours, with up to 500 log rows or 100 trace summaries; trace detail displays up to 2000 spans. A reached limit does not imply an exact total or a lossless next page. Trace detail may be sampled or incomplete. Nanosecond timestamps and trace/span IDs remain strings. Log lines and structured fields are displayed as text. Logs and traces are not archived locally.
+
+The optional tenant ID sets `X-Scope-OrgID` for the configured connection. Changing a saved endpoint, provider, or tenant requires a new connection. Upstream authorization still determines accessible data. No Loki tail, LogQL metrics, TraceQL metrics, or automatic cross-provider correlation is implemented.
+
+The implemented HTTP shapes follow the [Loki HTTP API](https://grafana.com/docs/loki/latest/reference/loki-http-api/) and [Tempo HTTP API](https://grafana.com/docs/tempo/latest/api_docs/). Local HTTP fixtures cover these shapes; no live Loki/Tempo release has been certified. See [기능 명세와 구현 현황](FEATURE_SPEC_AND_STATUS.ko.md) for the design-brief mapping and remaining work.
 
 Resource requests are read-only. Explicit Argo CD account login uses `POST /api/v1/session` to obtain a session token; the app cannot trigger builds, sync applications, or change monitoring configuration. Current integrations use existing HTTP APIs and need no upstream plugin. Authentication and network access still have to be configured on each upstream service.
 

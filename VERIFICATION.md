@@ -1,8 +1,20 @@
 # Verification record
 
+## Loki/Tempo and core contracts - 2026-10-13
+
+Implementation commits: `6514950`, `ac9ecd6`, `72c9ba3`, followed by the on-demand freshness display correction. Feature-level requirements and remaining scope are recorded in [FEATURE_SPEC_AND_STATUS.ko.md](FEATURE_SPEC_AND_STATUS.ko.md).
+
+- `scripts/test.ps1` passed: dependency install, TypeScript/Vite build, 28 Playwright cases at 1440x1000 and 480x760, Go tests, and `go vet ./...`. After the final on-demand display correction, the frontend production build and all 28 browser cases passed again.
+- `go test -race ./... -count=1` passed with the final backend. HTTP fixtures cover Loki tenant/auth headers, precise ns and duplicate timestamps, metadata, query rejection; Tempo search/detail, both batches/resourceSpans shapes, base64/hex IDs, typed int64/resource/span fields and unsafe trace-ID rejection. Application tests cover partial envelopes, cancellation, tenant credential binding, per-connection admission, and shutdown.
+- Storage fixtures preserve unknown top-level/target/rule fields, remove deleted entries, clear optional fields, and reject future connection schemas without changing the stored JSON. Collector fixtures verify that failed, empty, future-dated and incomplete metric results do not update last success or imply health.
+- The native `--demo` now exercises five real adapters over synthetic loopback HTTP. A Windows smoke run used a new LOCALAPPDATA under ignored `build/bin/smoke-observations-*`: the app showed five connections, rendered a Loki row with an exact 19-digit ns timestamp, executed Tempo search, and displayed trace detail with a 12000000 ns span. It exited normally after Alt+F4; the pre-existing user app remained running. This smoke exposed the on-demand freshness display issue, subsequently fixed and covered by the browser regression.
+- `scripts/build.ps1` produced the Windows amd64 executable. The Vite bundle remains approximately 599 kB (204 kB gzip), with the existing non-fatal size warning.
+
+No live Loki/Tempo server, real keyring entry, production database, release compatibility matrix, or large-connection load test was used. CLI/MCP and subprocess plugins are deferred. SQLite archive schema and identity remain v1; the new connection JSON schema marker is a separate version axis. The native smoke preceded the final on-demand-only display correction; the rebuilt artifact includes that tested correction.
+
 ## Provider architecture rebuild - 2026-10-13
 
-Baseline: `77c9868dbd88185203da87ca4cee7235fccde3f2`, initially clean tracked worktree. This record covers the uncommitted application/lifecycle/ownership/discovery changes described in ARCHITECTURE.md. Environment: Windows amd64, Go 1.25.7, Node 24.13.0, Wails CLI 2.11.0.
+Baseline: `77c9868dbd88185203da87ca4cee7235fccde3f2`, initially clean tracked worktree. This section records the application/lifecycle/ownership/discovery checkpoint committed as `9aadaf1`; the later Loki/Tempo work is recorded above. Environment: Windows amd64, Go 1.25.7, Node 24.13.0, Wails CLI 2.11.0.
 
 | Check | Actual result |
 | --- | --- |
