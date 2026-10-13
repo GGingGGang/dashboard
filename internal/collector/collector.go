@@ -40,12 +40,17 @@ func (c *Collector) Poll(ctx context.Context) platform.Snapshot {
 	next.StorageError = ""
 	next.Modules = map[string]platform.CollectionStatus{}
 	failures := []string{}
-	collect := func(name string, run func()) {
+	collect := func(name string, run func(context.Context)) {
 		status := c.previous.Modules[name]
 		status.Attempted = next.Attempted
 		next.Error = ""
 		if ctx.Err() == nil {
-			run()
+			moduleCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+			run(moduleCtx)
+			if moduleCtx.Err() != nil && next.Error == "" {
+				next.Error = "Collection interrupted"
+			}
+			cancel()
 		} else {
 			next.Error = "Collection interrupted"
 		}
@@ -58,16 +63,16 @@ func (c *Collector) Poll(ctx context.Context) platform.Snapshot {
 		next.Modules[name] = status
 	}
 	if p, ok := c.Provider.(platform.BuildSource); ok {
-		collect("builds", func() { c.pollBuilds(ctx, p, &next) })
+		collect("builds", func(ctx context.Context) { c.pollBuilds(ctx, p, &next) })
 	}
 	if p, ok := c.Provider.(platform.QueueSource); ok {
-		collect("queue", func() { c.pollQueue(ctx, p, &next) })
+		collect("queue", func(ctx context.Context) { c.pollQueue(ctx, p, &next) })
 	}
 	if p, ok := c.Provider.(platform.DeploymentSource); ok {
-		collect("deployments", func() { c.pollDeployments(ctx, p, &next) })
+		collect("deployments", func(ctx context.Context) { c.pollDeployments(ctx, p, &next) })
 	}
 	if p, ok := c.Provider.(platform.MetricSource); ok {
-		collect("metrics", func() { c.pollMetrics(ctx, p, &next) })
+		collect("metrics", func(ctx context.Context) { c.pollMetrics(ctx, p, &next) })
 	}
 	if len(next.Modules) == 0 {
 		failures = append(failures, "Provider has no supported collection capability")

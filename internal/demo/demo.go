@@ -25,6 +25,8 @@ func Connections(base string) []platform.Connection {
 		{ID: "demo-ci", Kind: "jenkins", Name: "Demo · Jenkins", URL: base + "/jenkins", Auth: "none", Targets: []platform.Target{{ID: "/job/payments/", Name: "payments", Service: "payments", Environment: "demo"}, {ID: "/job/catalog/", Name: "catalog", Service: "catalog", Environment: "demo"}}},
 		{ID: "demo-cd", Kind: "argocd", Name: "Demo · Argo CD", URL: base + "/argocd", Auth: "none", Targets: []platform.Target{{ID: "argocd/payments", Name: "payments", Service: "payments", Environment: "demo"}, {ID: "argocd/catalog", Name: "catalog", Service: "catalog", Environment: "demo"}}},
 		{ID: "demo-metrics", Kind: "prometheus", Name: "Demo · Prometheus", URL: base + "/prometheus", Auth: "none", Rules: rules},
+		{ID: "demo-logs", Kind: "loki", Name: "Demo · Loki", URL: base + "/loki", Auth: "none"},
+		{ID: "demo-traces", Kind: "tempo", Name: "Demo · Tempo", URL: base + "/tempo", Auth: "none"},
 	}
 }
 
@@ -43,6 +45,14 @@ func Start() (string, func()) {
 		}
 		var result any
 		switch {
+		case r.URL.Path == "/loki/loki/api/v1/query_range":
+			end, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
+			result = map[string]any{"status": "success", "data": map[string]any{"resultType": "streams", "result": []any{map[string]any{"stream": map[string]string{"service_name": "payments"}, "values": [][]any{{strconv.FormatInt(end-1e9+123456789, 10), "GET /payments 200", map[string]string{"trace_id": "0123456789abcdef0123456789abcdef"}}}}}}}
+		case r.URL.Path == "/tempo/api/search":
+			result = map[string]any{"traces": []any{map[string]any{"traceID": "0123456789abcdef0123456789abcdef", "rootServiceName": "payments", "rootTraceName": "GET /payments", "startTimeUnixNano": strconv.FormatInt(time.Now().Add(-time.Second).UnixNano(), 10), "durationMs": 12}}}
+		case r.URL.Path == "/tempo/api/traces/0123456789abcdef0123456789abcdef":
+			start := time.Now().Add(-time.Second).UnixNano()
+			result = json.RawMessage(fmt.Sprintf(`{"batches":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"payments"}}]},"scopeSpans":[{"scope":{"name":"demo"},"spans":[{"traceId":"0123456789abcdef0123456789abcdef","spanId":"0102030405060708","name":"GET /payments","startTimeUnixNano":"%d","endTimeUnixNano":"%d","status":{"code":1}}]}]}]}`, start, start+12000000))
 		case r.URL.Path == "/jenkins/api/json":
 			result = map[string]any{"mode": "NORMAL", "jobs": []any{map[string]any{"name": "payments", "fullName": "payments", "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob"}, map[string]any{"name": "catalog", "fullName": "catalog", "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob"}}}
 		case r.URL.Path == "/jenkins/queue/api/json":

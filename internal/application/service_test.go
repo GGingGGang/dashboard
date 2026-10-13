@@ -200,8 +200,15 @@ func TestShutdownCancelsActiveAndQueuedWork(t *testing.T) {
 		}}, nil
 	})
 	finished := make(chan error, 3)
-	for range 2 {
-		go func() { _, err := a.Query(c.ID, platform.Query{}); finished <- err }()
+	other := c.Clone()
+	other.ID = ""
+	other.Name = "Other"
+	otherID, err := a.SaveConnection(ConnectionInput{Connection: other})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{c.ID, otherID} {
+		go func() { _, err := a.Query(id, platform.Query{}); finished <- err }()
 	}
 	receive(t, entered)
 	receive(t, entered)
@@ -221,6 +228,20 @@ func TestShutdownCancelsActiveAndQueuedWork(t *testing.T) {
 	}
 	if _, err := a.SaveConnection(ConnectionInput{Connection: c}); err == nil {
 		t.Fatal("closed service accepted changes")
+	}
+}
+
+func TestConnectionAdmissionDoesNotOccupyGlobalSlots(t *testing.T) {
+	a, c := newTestService(t, func(platform.Connection, string) (platform.Provider, error) {
+		t.Fatal("must not construct while waiting")
+		return nil, nil
+	})
+	r := a.runners[c.ID]
+	r.gate <- struct{}{}
+	_, _, _, err := a.begin(c.ID, 10*time.Millisecond)
+	<-r.gate
+	if !errors.Is(err, context.DeadlineExceeded) || len(a.gate) != 0 {
+		t.Fatal("connection wait occupied a global slot or ignored deadline")
 	}
 }
 

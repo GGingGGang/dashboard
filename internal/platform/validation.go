@@ -8,13 +8,19 @@ import (
 
 // ValidateConnection checks provider-independent connection fields.
 func ValidateConnection(c Connection) error {
+	if c.SchemaVersion < 0 || c.SchemaVersion > 1 {
+		return errors.New("Connection schema is newer than this app supports")
+	}
 	if len(c.Tenant) > 150 || strings.ContainsAny(c.Tenant, "\r\n|") {
 		return errors.New("Use one tenant ID of at most 150 characters")
 	}
 	for _, char := range c.Tenant {
-		if char < 33 || char > 126 {
-			return errors.New("Tenant ID must contain printable ASCII without spaces")
+		if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("!-_.*'()", char)) {
+			return errors.New("Tenant ID contains unsupported characters")
 		}
+	}
+	if c.Tenant == "." || c.Tenant == ".." {
+		return errors.New("Reserved tenant ID")
 	}
 	if strings.TrimSpace(c.Name) == "" {
 		return errors.New("Connection name is required")

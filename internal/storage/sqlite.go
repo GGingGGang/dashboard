@@ -75,12 +75,85 @@ func (s *Store) Connections() ([]SavedConnection, error) {
 	return out, rows.Err()
 }
 func (s *Store) SaveConnection(c platform.Connection, ref string) error {
+	if c.SchemaVersion < 0 || c.SchemaVersion > 1 {
+		return errors.New("Unsupported connection schema")
+	}
+	c.SchemaVersion = 1
 	b, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("INSERT INTO connections VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config,secret_ref=excluded.secret_ref", c.ID, string(b), ref)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var old string
+	err = tx.QueryRow("SELECT config FROM connections WHERE id=?", c.ID).Scan(&old)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil {
+		var previous platform.Connection
+		if err = json.Unmarshal([]byte(old), &previous); err != nil {
+			return err
+		}
+		if previous.SchemaVersion > 1 {
+			return errors.New("Refusing to overwrite newer connection schema")
+		}
+		b, err = preserveConfig([]byte(old), b)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec("INSERT INTO connections VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config,secret_ref=excluded.secret_ref", c.ID, string(b), ref); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Preserve unknown settings on edit without exposing them to Desktop DTOs.
+// Arrays of targets/rules are matched by ID; removed entries remain removed.
+func preserveConfig(old, next []byte) ([]byte, error) {
+	var before, after map[string]json.RawMessage
+	if err := json.Unmarshal(old, &before); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(next, &after); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"targets", "rules"} {
+		var prior, current []map[string]json.RawMessage
+		if json.Unmarshal(before[key], &prior) != nil || json.Unmarshal(after[key], &current) != nil {
+			continue
+		}
+		byID := map[string]map[string]json.RawMessage{}
+		for _, row := range prior {
+			byID[string(row["id"])] = row
+		}
+		for _, row := range current {
+			if key == "targets" {
+				delete(byID[string(row["id"])], "capabilities")
+			}
+			for k, v := range byID[string(row["id"])] {
+				if _, known := row[k]; !known {
+					row[k] = v
+				}
+			}
+		}
+		value, err := json.Marshal(current)
+		if err != nil {
+			return nil, err
+		}
+		after[key] = value
+	}
+	// Known optional fields must be clearable even when omitted by JSON encoding.
+	delete(before, "tenant")
+	delete(before, "schemaVersion")
+	for k, v := range after {
+		before[k] = v
+	}
+	return json.Marshal(before)
 }
 func (s *Store) DeleteConnection(id string) error {
 	_, err := s.db.Exec("DELETE FROM connections WHERE id=?", id)

@@ -18,6 +18,7 @@ type runner struct {
 	cancel   context.CancelFunc
 	refresh  chan struct{}
 	done     chan struct{}
+	gate     chan struct{}
 }
 type Service struct {
 	ctx         context.Context
@@ -130,7 +131,7 @@ func (a *Service) provider(c platform.SavedConnection) (platform.Provider, error
 
 func (a *Service) start(c platform.SavedConnection) {
 	ctx, cancel := context.WithCancel(a.ctx)
-	r := &runner{ctx: ctx, revision: randomID(), cancel: cancel, refresh: make(chan struct{}, 1), done: make(chan struct{})}
+	r := &runner{ctx: ctx, revision: randomID(), cancel: cancel, refresh: make(chan struct{}, 1), done: make(chan struct{}), gate: make(chan struct{}, 1)}
 	a.mu.Lock()
 	a.runners[c.Connection.ID] = r
 	a.mu.Unlock()
@@ -155,15 +156,18 @@ func (a *Service) start(c platform.SavedConnection) {
 		info, _ := a.registry.Info(c.Connection.Kind)
 		interval := time.Duration(info.PollSeconds) * time.Second
 		for {
-			select {
-			case a.gate <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
 			pollCtx, stop := context.WithTimeout(ctx, 60*time.Second)
+			release, err := a.admit(pollCtx, r.gate)
+			if err != nil {
+				stop()
+				if ctx.Err() != nil {
+					return
+				}
+				continue
+			}
 			snap := poller.Poll(pollCtx)
 			stop()
-			<-a.gate
+			release()
 			if ctx.Err() != nil {
 				return
 			}
@@ -418,6 +422,7 @@ func (a *Service) begin(id string, timeout time.Duration) (context.Context, func
 		return nil, nil, platform.SavedConnection{}, err
 	}
 	parent := a.ctx
+	var connectionGate chan struct{}
 	var c platform.SavedConnection
 	if id != "" {
 		var err error
@@ -432,23 +437,43 @@ func (a *Service) begin(id string, timeout time.Duration) (context.Context, func
 			r = a.runners[id]
 		}
 		parent = context.WithValue(r.ctx, revisionKey{}, r.revision)
+		connectionGate = r.gate
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	a.operations.Add(1)
 	a.editMu.Unlock()
+	release, err := a.admit(ctx, connectionGate)
+	if err != nil {
+		cancel()
+		a.operations.Done()
+		return nil, nil, c, err
+	}
+	return ctx, func() { cancel(); release(); a.operations.Done() }, c, nil
+}
+
+// Per-connection admission precedes the global gate so a busy connection cannot
+// occupy both global slots while one of its calls waits for another.
+func (a *Service) admit(ctx context.Context, connectionGate chan struct{}) (func(), error) {
+	releaseConnection := func() {}
+	if connectionGate != nil {
+		select {
+		case connectionGate <- struct{}{}:
+			releaseConnection = func() { <-connectionGate }
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	select {
 	case a.gate <- struct{}{}:
 		if err := ctx.Err(); err != nil {
 			<-a.gate
-			cancel()
-			a.operations.Done()
-			return nil, nil, c, err
+			releaseConnection()
+			return nil, err
 		}
-		return ctx, func() { cancel(); <-a.gate; a.operations.Done() }, c, nil
+		return func() { <-a.gate; releaseConnection() }, nil
 	case <-ctx.Done():
-		cancel()
-		a.operations.Done()
-		return nil, nil, c, ctx.Err()
+		releaseConnection()
+		return nil, ctx.Err()
 	}
 }
 func (a *Service) revision(id string) string {

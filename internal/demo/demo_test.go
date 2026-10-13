@@ -4,8 +4,10 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"idp-dashboard/internal/collector"
+	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers"
 	"idp-dashboard/internal/storage"
 )
@@ -25,6 +27,27 @@ func TestAllAdaptersThroughDemoAPIs(t *testing.T) {
 		}
 		if err = p.Check(context.Background()); err != nil {
 			t.Fatal(c.Kind, err)
+		}
+		defer platform.CloseProvider(p)
+		q := platform.SearchRequest{Expression: `{service_name="payments"}`, Start: time.Now().Unix() - 60, End: time.Now().Unix(), Limit: 10}
+		if source, ok := p.(platform.LogSource); ok {
+			r, err := source.SearchLogs(context.Background(), q)
+			if err != nil || len(r.Entries) != 1 {
+				t.Fatalf("demo logs: %+v %v", r, err)
+			}
+			continue
+		}
+		if source, ok := p.(platform.TraceSource); ok {
+			q.Expression = `{ status=error }`
+			r, err := source.SearchTraces(context.Background(), q)
+			if err != nil || len(r.Traces) != 1 {
+				t.Fatalf("demo traces: %+v %v", r, err)
+			}
+			detail, err := source.Trace(context.Background(), r.Traces[0].TraceID)
+			if err != nil || len(detail.Spans) != 1 {
+				t.Fatalf("demo span: %+v %v", detail, err)
+			}
+			continue
 		}
 		poller := collector.NewCollector(c, p, s)
 		snap := poller.Poll(context.Background())

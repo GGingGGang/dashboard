@@ -35,11 +35,25 @@ func (p *Loki) Check(ctx context.Context) error {
 	_, err := p.SearchLogs(ctx, platform.SearchRequest{Expression: `{service_name=~".+"}`, Start: now - 60, End: now, Limit: 1})
 	return err
 }
-func (p *Loki) SearchLogs(ctx context.Context, q platform.SearchRequest) (platform.LogResult, error) {
-	out := platform.LogResult{Entries: []platform.LogEntry{}, Observation: platform.Observation{Completeness: "complete"}}
+func (p *Loki) SearchLogs(ctx context.Context, q platform.SearchRequest) (out platform.LogResult, resultErr error) {
+	out = platform.LogResult{Entries: []platform.LogEntry{}, Observation: platform.Observation{Completeness: "complete"}}
 	if err := q.Validate(500); err != nil {
 		return out, err
 	}
+	defer func() {
+		// Apply the output bound on error paths too; valid partial rows remain usable.
+		sort.SliceStable(out.Entries, func(i, j int) bool {
+			a, _ := strconv.ParseInt(out.Entries[i].TimestampNS, 10, 64)
+			b, _ := strconv.ParseInt(out.Entries[j].TimestampNS, 10, 64)
+			return a > b
+		})
+		if len(out.Entries) >= q.Limit {
+			out.Entries = out.Entries[:q.Limit]
+			out.Observation.Completeness = "unknown"
+			out.Observation.Diagnostics = append(out.Observation.Diagnostics, "Result limit reached. Narrow the time range or query; equal timestamps prevent a lossless next-page cursor.")
+		}
+		out = out.Clone()
+	}()
 	args := url.Values{"query": {q.Expression}, "start": {strconv.FormatInt(q.Start*1e9, 10)}, "end": {strconv.FormatInt(q.End*1e9, 10)}, "limit": {strconv.Itoa(q.Limit)}, "direction": {"backward"}}
 	var response struct {
 		Status   string   `json:"status"`
@@ -82,16 +96,5 @@ func (p *Loki) SearchLogs(ctx context.Context, q platform.SearchRequest) (platfo
 			out.Entries = append(out.Entries, e)
 		}
 	}
-	// Stable sorting preserves equal timestamps and duplicates; no synthetic cursor.
-	sort.SliceStable(out.Entries, func(i, j int) bool {
-		a, _ := strconv.ParseInt(out.Entries[i].TimestampNS, 10, 64)
-		b, _ := strconv.ParseInt(out.Entries[j].TimestampNS, 10, 64)
-		return a > b
-	})
-	if len(out.Entries) >= q.Limit {
-		out.Entries = out.Entries[:q.Limit]
-		out.Observation.Completeness = "unknown"
-		out.Observation.Diagnostics = append(out.Observation.Diagnostics, "Result limit reached. Narrow the time range or query; equal timestamps prevent a lossless next-page cursor.")
-	}
-	return out.Clone(), nil
+	return out, nil
 }

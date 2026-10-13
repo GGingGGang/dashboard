@@ -32,6 +32,18 @@ func NewRegistry(definitions ...Definition) (*Registry, error) {
 		if !slices.Contains(d.Info.AuthMethods, d.Info.DefaultAuth) {
 			return nil, errors.New("Default authentication must be supported")
 		}
+		d.Info = d.Info.Clone()
+		if d.Info.Queries == nil {
+			d.Info.Queries = map[string]QueryInfo{}
+		}
+		if d.Info.Query == nil {
+			if q, ok := d.Info.Queries["metrics"]; ok {
+				d.Info.Query = &q
+			}
+		}
+		if d.Info.Query != nil {
+			d.Info.Queries["metrics"] = *d.Info.Query
+		}
 		if slices.Contains(d.Info.Capabilities, "metrics") && (d.Info.Query == nil || d.Info.Query.Language == "") {
 			return nil, errors.New("Metrics provider requires query metadata")
 		}

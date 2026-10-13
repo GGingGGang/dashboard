@@ -6,17 +6,18 @@ import (
 )
 
 type Connection struct {
-	ID         string   `json:"id"`
-	Kind       string   `json:"kind"`
-	Name       string   `json:"name"`
-	URL        string   `json:"url"`
-	BrowserURL string   `json:"browserUrl"`
-	Auth       string   `json:"auth"`
-	Username   string   `json:"username"`
-	CAFile     string   `json:"caFile"`
-	Tenant     string   `json:"tenant,omitempty"`
-	Targets    []Target `json:"targets"`
-	Rules      []Rule   `json:"rules"`
+	SchemaVersion int      `json:"schemaVersion,omitempty"`
+	ID            string   `json:"id"`
+	Kind          string   `json:"kind"`
+	Name          string   `json:"name"`
+	URL           string   `json:"url"`
+	BrowserURL    string   `json:"browserUrl"`
+	Auth          string   `json:"auth"`
+	Username      string   `json:"username"`
+	CAFile        string   `json:"caFile"`
+	Tenant        string   `json:"tenant,omitempty"`
+	Targets       []Target `json:"targets"`
+	Rules         []Rule   `json:"rules"`
 }
 
 type Target struct {

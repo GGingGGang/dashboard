@@ -19,7 +19,7 @@ type Tempo struct{ api *httpapi.Client }
 
 func Definition() platform.Definition {
 	return platform.Definition{
-		Info: platform.ProviderInfo{Kind: "tempo", Name: "Tempo", Category: "observability", Capabilities: []string{"traces"}, OnDemand: true, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, Queries: map[string]platform.QueryInfo{"traces": {Language: "TraceQL", DefaultExpression: `{ true }`, Modes: []string{"search", "detail"}, MaxResults: 100}}},
+		Info: platform.ProviderInfo{Kind: "tempo", Name: "Tempo", Category: "observability", Capabilities: []string{"traces"}, OnDemand: true, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, Queries: map[string]platform.QueryInfo{"traces": {Language: "TraceQL", DefaultExpression: `{ status=error }`, Modes: []string{"search", "detail"}, MaxResults: 100}}},
 		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
 			api, err := httpapi.New(c, secret)
 			if err != nil {
@@ -32,7 +32,7 @@ func Definition() platform.Definition {
 func (p *Tempo) Close() error { return p.api.Close() }
 func (p *Tempo) Check(ctx context.Context) error {
 	now := time.Now().Unix()
-	_, err := p.SearchTraces(ctx, platform.SearchRequest{Expression: `{ true }`, Start: now - 60, End: now, Limit: 1})
+	_, err := p.SearchTraces(ctx, platform.SearchRequest{Expression: `{ status=error }`, Start: now - 60, End: now, Limit: 1})
 	return err
 }
 func (p *Tempo) SearchTraces(ctx context.Context, q platform.SearchRequest) (platform.TraceSearchResult, error) {
