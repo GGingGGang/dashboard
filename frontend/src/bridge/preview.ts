@@ -228,6 +228,9 @@ export function previewBridge(empty = false): Bridge {
         throw new Error("Query or request rejected by upstream");
       return result(q.expression === "up" ? 1 : 42, q.start > 0);
     },
+    async ReadJSON() {
+      throw new Error("실제 HTTP API 조회는 Windows 앱에서 실행하세요. 브라우저 미리보기에서는 외부 API를 호출하지 않습니다.");
+    },
     async SearchLogs(id, q) {
       return { observation: { ...observed(id), windowStart: q.start, windowEnd: q.end }, entries: [{ timestampNs: String(BigInt(q.end - 1) * 1000000000n + 123456789n), line: "GET /payments 200", labels: { service_name: "payments" }, fields: { trace_id: traceID } }] };
     },

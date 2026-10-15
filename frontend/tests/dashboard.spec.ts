@@ -203,6 +203,7 @@ test("failed metric rules never produce a healthy zero summary", async ({
     });
   });
   await page.goto("/");
+  await page.getByRole("button", { name: "운영 현황", exact: true }).click();
   const summary = page.locator(".stat").filter({ hasText: "지표 이상 징후" });
   await expect(summary.locator(".value")).toHaveText("—");
   await expect(summary).toContainText("판정 가능 0/1개 규칙");
@@ -215,6 +216,7 @@ test("overview preserves separate sync and health and fits both sizes", async ({
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
+  await page.getByRole("button", { name: "운영 현황", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "운영 현황", exact: true }),
   ).toBeVisible();
@@ -242,7 +244,7 @@ test("overview preserves separate sync and health and fits both sizes", async ({
   ).toBeTruthy();
   expect(errors).toEqual([]);
   await page.screenshot({
-    path: `test-results/overview-${test.info().project.name}.png`,
+    path: test.info().outputPath("overview.png"),
     fullPage: true,
   });
 });
@@ -310,7 +312,7 @@ test("empty onboarding discovers and selects a target", async ({ page }) => {
   expect(cards[0].top).toBe(cards[1].top);
   expect(cards[0].height).toBeLessThan(90);
   await page.locator("#targets").screenshot({
-    path: `test-results/target-cards-${test.info().project.name}.png`,
+    path: test.info().outputPath("target-cards.png"),
   });
   await page.locator(".target-mapping summary").click();
   await page

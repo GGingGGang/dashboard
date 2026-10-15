@@ -11,6 +11,9 @@ import { api, browserPreview } from "./bridge";
 import { esc, date, elapsed, badge } from "./shared/format";
 import { chart, dispose } from "./components/chart";
 import { mountExplorer } from "./components/explorer";
+import { DashboardController } from "./components/dashboard";
+import { mountAPIQuery } from "./components/api-query";
+import type { DashboardWidget } from "./components/dashboard-layout";
 import "./style.css";
 
 let state: State = {
@@ -20,7 +23,7 @@ let state: State = {
   error: "",
   demo: browserPreview,
 };
-let page = "overview",
+let page = "dashboard",
   scope = "*",
   period = 3600,
   historyOffset = 0,
@@ -94,13 +97,20 @@ function toast(message: unknown) {
     if (el.textContent === String(message)) el.textContent = "";
   }, 6500);
 }
+let apiEditing: DashboardWidget | undefined;
+const dashboard = new DashboardController(() => state, toast, widget => {
+  apiEditing = widget;
+  void changePage("api");
+});
 document.querySelector("#app")!.innerHTML =
   `<div class="app-shell"><header class="top"><div class="brand"><div class="logo" aria-hidden="true">≋</div><div><div class="eyebrow">DEVELOPER OPERATIONS</div><h1>IDP Dashboard</h1></div></div><div class="actions"><span class="muted" id="connection-count"></span><button id="refresh" class="ghost">↻ 새로고침</button></div></header><nav class="nav" aria-label="주 메뉴">${[
+    ["dashboard", "대시보드"],
     ["overview", "운영 현황"],
     ["history", "빌드 이력"],
     ["metrics", "지표 탐색"],
     ["logs", "로그 탐색"],
     ["traces", "트레이스 탐색"],
+    ["api", "API 쿼리"],
     ["connections", "연결 설정"],
   ]
     .map(([id, label]) => `<button data-page="${id}">${label}</button>`)
@@ -109,10 +119,12 @@ document.querySelector("#app")!.innerHTML =
     )}</nav><div id="banner"></div><main id="page"></main><footer class="footer"><span>LOCAL FIRST · READ ONLY</span><span>앱 실행 중 수집 · 빌드 요약은 이 PC에 보존</span></footer></div><div id="toast" class="toast" role="status" aria-live="polite"></div><dialog id="connection-dialog" class="dialog" aria-labelledby="dialog-title"><form id="connection-form"><header class="dialog-header"><h2 id="dialog-title">연결 추가</h2><button type="button" data-close aria-label="닫기">×</button></header><div class="dialog-body" id="connection-fields"></div><footer class="dialog-footer"><button type="button" id="test-connection">연결 검사 · 대상 찾기</button><button type="submit" class="primary">저장</button></footer></form></dialog>`;
 
 async function changePage(next: string) {
+  if (next !== "api") apiEditing = undefined;
   queryRequest++;
+  dashboard.unmount();
   page = next;
   dispose();
-  generation++;
+  const pageGeneration = ++generation;
   renderedStamp = "";
   document
     .querySelectorAll("[data-page]")
@@ -125,11 +137,18 @@ async function changePage(next: string) {
   await api
     .SavePreference("view", JSON.stringify({ page, scope, period }))
     .catch(() => {});
+  if (pageGeneration !== generation) return;
+  if (page === "dashboard") await dashboard.mount(document.querySelector<HTMLElement>("#page")!);
   if (page === "overview") renderOverview();
   if (page === "history") await renderHistory();
   if (page === "metrics") renderMetrics();
   if (page === "logs" || page === "traces") renderExplorer();
   if (page === "connections") renderConnections();
+  if (page === "api") mountAPIQuery(document.querySelector<HTMLElement>("#page")!, () => generation === pageGeneration && page === "api", async (request, title, result, existing) => {
+    await dashboard.addJSON(request, title, result, existing);
+    await changePage("dashboard");
+    toast("노드를 반영했습니다. 저장 · 배치 완료를 누르면 보존됩니다.");
+  }, apiEditing);
 }
 function renderExplorer() {
   const gen = generation;
@@ -156,6 +175,7 @@ async function poll() {
       queryRequest++;
     }
     state = next;
+    if (page === "dashboard") dashboard.update();
     if (connectionsChanged && (page === "logs" || page === "traces")) { generation++; renderExplorer(); }
     updateChrome();
     const stamp = JSON.stringify([
@@ -682,6 +702,7 @@ document.addEventListener("click", async (e) => {
     }
     if (button.id === "refresh") {
       await api.Refresh();
+      dashboard.refresh();
       toast("새 조회를 요청했습니다.");
       await poll();
     }
@@ -860,7 +881,7 @@ async function init() {
     const saved = await api.GetPreference("view");
     if (saved) {
       const v = JSON.parse(saved);
-      if (["overview", "history", "metrics", "logs", "traces", "connections"].includes(v.page))
+      if (["dashboard", "overview", "history", "metrics", "logs", "traces", "api", "connections"].includes(v.page))
         page = v.page;
       if (typeof v.scope === "string") scope = v.scope;
       if ([900, 3600, 21600, 86400].includes(v.period)) period = v.period;

@@ -1,5 +1,30 @@
 # Verification record
 
+## Time-axis labels and HTTP jq nodes - 2026-10-15 16:29 KST
+
+- Ctrl+wheel now changes only the time range. Vertical bounds and node dimensions stay fixed. The separate “최근 값” heading was removed; the last visible sample value sits beside the graph on the right at its plotted height. The final correction uses the same 11px regular text as the axis labels. Three vertical ticks and nearest-sample time/value hover inspection are implemented.
+- All 66 Playwright cases passed at 1440x1000 and 480x760. After the final font-only change, both targeted graph tests passed again, including matching font size, right-side placement, hover, fixed vertical scale, node geometry and no extra query. HTTP UI tests cover scalar rendering, escaped text, saved nodes, manual-only execution, source restrictions and stale response suppression. The final browser preview was visually inspected.
+- `go test ./... -count=1` and `go vet ./...` passed. Synthetic HTTP tests cover jq paths/sums/streams, large integer preservation, invalid JSON, rejected credentials/commands, redirects, input/output limits and cancellation. The application test verifies shared admission and cancellation during shutdown. No real API or CLI credentials were used.
+- TypeScript and the production frontend build passed (643.10 kB / 217.88 kB gzip; existing non-fatal bundle warning). Wails 2.11.0 rebuilt `build/bin/idp-dashboard.exe` at 16:29:52 KST, 16,799,232 bytes. The binary contains `index-C03cOVJD.js`, `index-Bx5Ft7Zp.css` and the `ReadJSON` bridge.
+- Command execution and API authentication are not implemented, following the user's explicit choice to ship unauthenticated HTTP first. The API tab exposes Command as disabled. YAML is not supported. Native WebView2 interaction and live external API acceptance were not exercised in this pass; browser tests use a bridge fixture, backend tests use loopback HTTP. Race tests were not repeated. gojq cancellation is cooperative, not process isolation.
+
+The final test run used a fresh Vite process. An earlier run had four failures because test imports and Vite's hot-reloaded bridge held different instances; restarting the dev server resolved them without changing production code. The final binary includes the latest font correction and supersedes the builds below.
+
+## Graph zoom build - 2026-10-15 15:57 KST
+
+The metric graph supports node-local Ctrl+wheel zoom (100–800%), zoom buttons, and reset, with stronger line/grid contrast. Two targeted Playwright cases passed at wide and compact sizes: graph zoom changes neither node geometry nor other graphs, issues no extra query, respects bounds, and preserves control focus. The production frontend build passed (635.61 kB / 215.52 kB gzip). Wails rebuilt `build/bin/idp-dashboard.exe` at 15:57:50; the file is 15,886,336 bytes and contains the latest `index-DADZ-TzP.js` asset. The already-running native process must be closed and relaunched to load this build. Native interaction has not been checked. JSON/jq source nodes are not implemented in this build.
+
+## Personal dashboard layout - 2026-10-15
+
+- TypeScript checking and the Vite production build passed. The final bundle is 633.55 kB (214.65 kB gzip); the existing 500 kB bundle warning remains non-fatal. No dependency was added.
+- All 58 Playwright cases passed in the final run, across 1440x1000 and 480x760. Coverage includes card configuration and duplicate metric queries, pointer/keyboard layout editing, reload restoration, intentionally empty layouts, failed save/retry, future-schema preservation, focused editing during polling, missing connections, long target identities, collision placement, query bounds and escaped log text. Data tests also cover refresh timers surviving state updates, two-request concurrency, stale replies, stop cleanup, and nullable/small metric values. Existing explorer, archive, connection and authentication regressions passed.
+- `go test ./... -count=1` and `go vet ./...` passed with a writable temporary Go cache. Backend source and SQLite schema were unchanged.
+- The Windows amd64 executable was rebuilt from the final frontend using the pinned Wails 2.11.0 command: `go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -platform windows/amd64 -skipbindings -s`. Output: `build/bin/idp-dashboard.exe`.
+- The production browser preview was visually checked at wide and narrow sizes. The default metric cards show graph bounds, time range, and series labels without internal clipping. Narrow layout has no page-width overflow.
+- `git diff --check` passed. README, architecture, and F21 describe the editing and persistence contracts.
+
+The browser tests used fixtures and a simulated preference bridge. This change has not been manually exercised in native WebView2 or against live infrastructure; existing SQLite preference behavior is reused. Browser preview preferences remain in memory and are separate from native persistence. No production database or credential was used. Race tests, release packaging/signing, and long-running load checks were not repeated for this frontend-only change. Sandbox restrictions required temporary Vite/test-output directories and a separate Playwright configuration with the same test files, Edge channel, and viewport sizes; the standard test script was not run end to end in this session.
+
 ## Loki/Tempo and core contracts - 2026-10-13
 
 Implementation commits: `6514950`, `ac9ecd6`, `72c9ba3`, followed by the on-demand freshness display correction. Feature-level requirements and remaining scope are recorded in [FEATURE_SPEC_AND_STATUS.ko.md](FEATURE_SPEC_AND_STATUS.ko.md).

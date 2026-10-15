@@ -14,6 +14,7 @@ import (
 
 	"idp-dashboard/internal/application"
 	"idp-dashboard/internal/demo"
+	"idp-dashboard/internal/jsonsource"
 	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers"
 	"idp-dashboard/internal/storage"
@@ -70,7 +71,7 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	}
-	a.service = application.New(ctx, store, windowsCredentials{}, a.registry, a.demoMode)
+	a.service = application.New(ctx, store, windowsCredentials{}, a.registry, a.demoMode, jsonsource.Reader{})
 	if err := a.service.Start(); err != nil {
 		a.err = err.Error()
 	}
@@ -100,6 +101,12 @@ func (a *App) Refresh() {
 	if a.service != nil {
 		a.service.Refresh()
 	}
+}
+func (a *App) ReadJSON(request platform.JSONRequest) (platform.JSONResult, error) {
+	if err := a.ready(); err != nil {
+		return platform.JSONResult{}, err
+	}
+	return a.service.ReadJSON(request)
 }
 func (a *App) SaveConnection(input ConnectionInput) (string, error) {
 	if err := a.ready(); err != nil {

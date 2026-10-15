@@ -1,11 +1,11 @@
 # 기능 명세와 구현 현황
 
-기준일: 2026-10-13. 원문: `private/DESIGN_BRIEF.ko.md`(로컬 비공개 문서).
+기준일: 2026-10-15. 원문: `private/DESIGN_BRIEF.ko.md`(로컬 비공개 문서).
 최초 분류 기준: `9aadaf1`. 현재 상태는 아래 커밋 이력의 구현과 검증 결과를 반영한다.
 
 이 문서는 브리프의 제안과 실제 동작을 구별한다. **완료**는 명시한 범위의 코드와 테스트가 있다는 뜻이며 실서비스 검증을 뜻하지 않는다. **부분**은 계약 일부만 충족한다. **미구현**은 실행 경로가 없다. **조건부 보류**는 이번 범위에서 제외한 선택 사항이다.
 
-이번 범위는 기존 코드 유지, 핵심 계약 보완, Loki 로그와 Tempo 트레이스의 읽기 전용 조회다. CLI/MCP 소비자와 외부 프로세스 플러그인은 사용자 선택에 따라 보류한다. 브리프의 장기 제안 전체를 이번 릴리스의 완료 조건으로 간주하지 않는다.
+이번 범위는 기존 코드 유지, 핵심 계약 보완, Loki 로그와 Tempo 트레이스의 읽기 전용 조회, 개인별 대시보드 배치, 인증 없는 HTTP JSON의 jq 조회다. CLI/MCP 소비자와 외부 프로세스 플러그인, Command 실행 및 범용 API 인증은 사용자 선택에 따라 보류한다. 브리프의 장기 제안 전체를 이번 릴리스의 완료 조건으로 간주하지 않는다.
 
 ## 기능별 계약
 
@@ -30,7 +30,8 @@
 | F17 전송 정밀도 | JS 안전 정수를 넘는 ID와 ns 시각은 문자열로 전송한다. 단위를 명시한다 | 부분: Loki/Tempo ns·ID·OTLP int64 문자열 보존 검증 완료 | 기존 build number는 숫자이므로 F08과 함께 변경해야 한다. 표시용 날짜 변환과 원본 ns 표시를 구분한다. |
 | F18 소비자 | Application 계약을 여러 소비자가 공유하고 UI가 정책을 복제하지 않는다 | 부분: Desktop 사용, 분리된 Application | CLI/MCP 구현은 **조건부 보류**. 공유 계약과 headless 테스트는 유지한다. |
 | F19 런타임 확장 | 컴파일 등록과 외부 프로세스 프로토콜을 구분한다 | 정적 등록 완료, 외부 프로세스 **조건부 보류** | 필요 시 Windows subprocess/handshake/version/cancel/신뢰 설치 정책을 별도 ADR로 결정한다. 프로세스 분리가 sandbox는 아니다. |
-| F20 검증·기록 | 계약/HTTP fixture/통합/UI/DB 검증과 선택적 live 검증을 분리한다 | 완료 범위: [VERIFICATION](VERIFICATION.md), Go/race/vet·Playwright 28개·Windows 빌드·네이티브 데모 조회 | 실제 운영 서버·실제 자격증명·대규모 부하 검증은 미수행이다. |
+| F20 검증·기록 | 계약/HTTP fixture/통합/UI/DB 검증과 선택적 live 검증을 분리한다 | 실행 근거와 최종 테스트 수·빌드 결과는 [VERIFICATION](VERIFICATION.md)에 기록한다 | 이번 UI의 네이티브 직접 조작·실서비스·대규모 부하 검증은 미수행이다. 과거 네이티브 검증과 구분한다. |
+| F21 개인 대시보드 | 개발자가 계속 열어 두는 화면에서 카드의 위치·크기·내용을 직접 구성한다. 저장된 배치가 유효하지 않으면 원본을 보존한다 | 완료 범위: [layout](frontend/src/components/dashboard-layout.ts), [controller](frontend/src/components/dashboard.ts), [data](frontend/src/components/dashboard-data.ts). `dashboard.layout` v1은 SQLite preference에 저장하며 12열·최대 24개·비중첩을 검증한다 | 빌드/대기열/배포는 수집 snapshot을 표시한다. 지표/로그/트레이스는 대시보드를 여는 시점·수동 새로고침·선택한 주기에만 직접 조회한다. 로그 100행, 트레이스 30건, 24시간 범위를 넘지 않는다. 빈 배치는 저장한다. 손상되었거나 미래 버전인 배치는 덮어쓰지 않고 편집을 막는다. 배치·조회 수명주기·저장 실패는 브라우저 fixture로 검증했다. |
 
 ## 새 조회 기능의 입출력과 실패 의미
 
@@ -118,6 +119,8 @@ CLI/MCP와 외부 프로세스 플러그인은 사용자 선택에 따른 보류
 기존 [ARCHITECTURE.md](ARCHITECTURE.md)는 구조 설명, [CONTRIBUTING.md](CONTRIBUTING.md)는 구현 방법, [VERIFICATION.md](VERIFICATION.md)는 실행 증거를 담당한다. 비공개 `private/provider-architecture-review/` 문서는 과거 검토 기록이며 현재 구현의 증거로 간주하지 않는다.
 
 ## 구현 순서와 커밋 이력
+
+후속 API 쿼리는 인증 없는 HTTP GET JSON과 jq를 지원한다. 결과를 수동 조회 노드로 추가·수정할 수 있으며, 숫자/문자열은 값으로, 배열/객체는 JSON으로 표시한다. 큰 정수는 문자열 전달로 보존한다. Command는 비활성이고 YAML은 지원하지 않는다. 그래프 확대는 시간축에만 적용하고, 오른쪽 값 표시·축 눈금·마우스 조회를 제공한다. 상세 제한과 사용법은 README, 검증 범위는 VERIFICATION을 따른다.
 
 1. `9aadaf1` — Application·포트 분리, lifecycle/소유권/발견 권한 테스트. Go race/vet, UI 20개, Windows 빌드 검증 완료.
 2. `7d0d363` — 기능별 계약·현황·수용 조건 문서.

@@ -25,6 +25,9 @@ dashboard/
 │   ├── main.ts                 # Navigation, page state, rendering and event coordination
 │   ├── bridge/                 # Wails access, bridge contract, browser fixture
 │   ├── components/chart.ts     # Numeric-series rendering and chart lifecycle
+│   ├── components/dashboard.ts # Personal board editing, persistence, and card rendering
+│   ├── components/dashboard-layout.ts # Versioned layout validation and collision placement
+│   ├── components/dashboard-data.ts # Mounted-card query lifetime, refresh, and result state
 │   ├── shared/                 # Data contracts and display formatting
 │   └── style.css
 ├── frontend/tests/             # Browser acceptance tests
@@ -89,6 +92,9 @@ Targets may declare `capabilities`. A combined provider can return one target fo
 - `application.Service` owns configuration changes, credential bindings through a port, admission, polling, manual operations, snapshots, history, preferences, and backup use cases.
 - `app.go` owns service composition, OS credential access, the database path, demo startup, native dialogs, window geometry, and explicit Wails forwarding methods.
 - `platform/persistence.go` contains storage-neutral record/filter/page DTOs. Storage aliases preserve existing Go callers; SQL, schema version, archive key, remain unchanged. Connection JSON now supports tenant and schemaVersion; unknown fields are preserved when editing.
+- `components/dashboard-layout.ts` owns the strict `dashboard.layout` v1 preference format: no overlapping cards, 12 columns, and at most 24 cards. A failed or future version is never rewritten by the frontend.
+- `components/dashboard.ts` owns the dashboard editing transaction. It keeps a saved baseline plus undo history, commits only through the existing preference bridge, and restores the baseline on cancel. In a narrow board it presents cards vertically while retaining the wide-grid coordinates.
+- `components/dashboard-data.ts` owns per-card data state. Build, queue, and deployment cards render already-collected snapshots. Metric, log, and trace cards issue explicit bounded queries only while their cards are mounted, serialize at most two active requests, discard stale layout results, and stop timers when the dashboard unmounts.
 
 Provider identity does not select collection policy: implemented interfaces select capabilities. Protocol-specific validation uses the optional `Definition.Validate` callback; Argo CD local-account username validation lives with Argo CD. Authentication protocol implementation is still required when introducing a new authentication method.
 
@@ -139,3 +145,13 @@ Still open: target-level partial outcomes and migration of existing sources to c
 Loki retains labels, structured metadata, duplicate lines and equal timestamps. Search is capped at 500 rows and 24 hours. It does not implement tail or a synthetic timestamp cursor. Tempo searches at most 100 summaries and reads at most 2000 spans per detail response. Detail lookup omits search-window filters, accepts both Tempo `batches` and OTLP `resourceSpans`, normalizes base64/hex IDs, and preserves original span/scope fields. Neither sampling completeness nor missing-parent root status is inferred. Shared transport still limits responses to 8 MiB.
 
 Connection JSON schema 0 (legacy) and 1 are accepted; saves write 1. Storage edits preserve unknown top-level fields and target/rule fields matched by ID, without exposing unknown settings to Desktop. Future connection schemas are readable but cannot be opened or overwritten. SQLite remains schema v1; there is no archive migration. Tenant binding uses the same new-connection boundary as endpoint changes. See [feature status](FEATURE_SPEC_AND_STATUS.ko.md) for the full invariant and ADR mapping.
+
+## Personal dashboard layout (2026-10-15)
+
+`dashboard.layout` is a UI preference, separate from connection configuration, credentials, and archived builds. Its version 1 JSON contains only the ordered card definitions and their grid coordinates. The native SQLite preference API stores it unchanged as text; no backend table, Go model, migration, or new dependency is required. An empty layout is a meaningful saved preference. If parsing or validation fails, the UI keeps the stored text intact and disables editing rather than attempting a migration or replacement.
+
+The board is 12 columns wide with at most 24 non-overlapping cards. `dashboard-layout.ts` performs validation and placement. `dashboard.ts` handles pointer and keyboard editing, settings, save/cancel/undo state, responsive stacking, and card DOM. `dashboard-data.ts` separates snapshot cards from query cards: snapshots reuse collector state, while metrics, logs, and traces run dashboard-owned reads on opening, manual refresh, or an optional mounted-card interval. The latter is bounded to two concurrent requests and invalidates results when a card or its source configuration changes.
+
+The `json` node extends layout v1 with an exact `json` configuration (`source: http`, URL, jq filter), requires manual refresh and preserves existing node formats. Older clients reject this new kind rather than rewriting it. `api-query.ts` captures configuration, executes a manual preview and seeds the added node with that result without issuing a duplicate request. Results are not persisted. The UI invalidates old replies when settings or pages change.
+
+`App.ReadJSON` delegates to the application-owned `JSONReader` port. `Service.ReadJSON` reuses admission, cancellation and shutdown tracking with a 25-second overall budget. The composition root supplies `internal/jsonsource.Reader`, which performs unauthenticated GET and embedded gojq evaluation. No provider connection or credential store is involved; no shell process is started. HTTP is bounded to 20 seconds/8 MiB, and jq receives a cooperative 2-second context with 200 outputs/1 MiB display bounds. This is an in-process interpreter, not a resource-isolated subprocess sandbox. JSON scalar values cross the frontend bridge as exact text, not JS numbers.

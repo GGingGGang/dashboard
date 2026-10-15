@@ -1,7 +1,9 @@
 import type { State, Connection, ConnectionTest, Query, QueryResult, HistoryFilter, Rule, Build } from "../shared/types";
 import type { SearchRequest, LogResult, TraceSearchResult, TraceResult } from "../shared/types";
+import type { JSONRequest, JSONResult } from "../shared/json-query";
 
 export type Bridge = {
+  ReadJSON(request: JSONRequest): Promise<JSONResult>;
   GetState(): Promise<State>;
   SaveConnection(input: {
     connection: Connection;

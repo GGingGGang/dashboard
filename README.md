@@ -1,6 +1,6 @@
 # IDP Dashboard
 
-A Windows desktop dashboard for build history, deployment status, metrics, logs, and traces. Connect to your existing tools by URL and read-only credentials. No dashboard server, Kubernetes controller, or OCI account is required.
+A Windows desktop dashboard that a developer can keep open while working. Arrange build history, deployment status, metrics, logs, and traces into a personal operations view, then connect to existing tools by URL and read-only credentials. No dashboard server, Kubernetes controller, or OCI account is required.
 
 This is an early implementation of an operations view for a developer platform, not a complete internal developer platform. The interface is Korean; contributor documentation is English.
 
@@ -44,10 +44,14 @@ Connections are made from the PC. A private Kubernetes ClusterIP requires an exi
 
 ## Views and interpretation
 
+- **내 대시보드**: a personal, persistent board of build, queue, deployment, metric, log, and trace cards. Use **배치 편집** to add a card, change its source connection and optional target or query, then give it a display name. On a wide window, drag a card title to move it, drag its lower-right corner to resize it, or focus the move/resize control and use arrow keys. Card settings also set width and height. **되돌리기** reverses the latest layout edit; **취소** restores the last saved layout; **저장 · 배치 완료** writes the whole layout. Narrow windows stack cards vertically: change card size in settings and edit the wide-screen position after widening the window.
 - **운영 현황**: latest failed completed build per job, selected queue items, independent deployment Sync/Health, metric rules, and source freshness. Service/environment labels map selected CI/CD targets; metric queries retain their own label scope.
 - **빌드 이력**: local build summaries, filters, pagination, and consistent SQLite backup. Console logs and artifacts are not archived.
 - **지표 탐색**: PromQL instant/range queries, charts, values, and query favorites.
+- **API 쿼리**: manually fetch unauthenticated HTTP GET JSON, apply a jq expression, then add the result to the dashboard. For `{"service":{"file":{"name":123123}}}`, use `.service.file.name` to display `123123`. Use `.` for the full response or `[.items[].cost] | add` for a sum. Command and API authentication are deferred; the disabled Command option is not an executable source.
 - **연결 설정**: multiple instances, credentials, target discovery, service/environment mapping, and editable rules.
+
+A dashboard can contain up to 24 cards on a 12-column wide-screen grid. Each card stores its own source connection; snapshot cards may narrow to a selected target. Metric, log, and trace cards also store a query, 15-minute to 24-hour range, optional display unit for metrics, and an optional refresh interval. Builds, queue, and deployments display the connection's collected snapshot. Metric, log, and trace cards make explicit dashboard queries: once when the dashboard opens, again from their refresh button, and optionally at their selected interval while the dashboard remains open. Metric cards default to 60 seconds; log and trace cards default to manual refresh. Dashboard log queries return at most 100 rows and trace queries at most 30 summaries; they remain bounded to 24 hours.
 
 Metric checks are user-defined threshold comparisons, not automated root-cause analysis. Presets require the corresponding metrics: node-exporter for CPU/memory/filesystems and kube-state-metrics for container restarts. Rules start disabled. Empty, stale, or failed results are not classified as healthy. One `OutOfSync` application can still be `Healthy`; both are shown.
 
@@ -55,9 +59,16 @@ CI/CD polls wait 15 seconds after a cycle; monitoring waits 30 seconds. A cycle 
 
 Collection continues while the app is running, including minimization. Closing the app stops it. There is no tray process or Windows service. Resume requests an immediate refresh; actual sleep/resume acceptance is still pending.
 
+Metric nodes support Ctrl+wheel zoom over the node, or the graph's +/− buttons. Click the percentage to restore the full time range. Zoom changes only the horizontal time range around the pointer. The vertical value scale, graph height, and node dimensions stay unchanged; no extra query is issued. Zoom is temporary and resets when the dashboard is reopened or the query changes.
+
+Metric graphs show three vertical-axis values and place the last visible sample's value immediately to the right at its plotted height, using the same 11px text styling as the axis labels. Hover over the graph to inspect each series' nearest sample time and value; gaps remain missing values. The old separate “최근 값” heading is removed.
+
+API queries use embedded gojq; no jq installation is needed. Only JSON is supported. Strings and numbers appear as values; objects, arrays and multiple jq outputs appear as formatted JSON. Large integers remain exact text across the desktop bridge. HTTP requests have a 20-second timeout and an 8 MiB input limit; jq has a cooperative 2-second context and a 200-output/1 MiB display limit. Redirects and URL user-info are rejected, and credentials/cookies are not added. Do not put secrets in URLs: the URL and query are saved with the node. Query results stay in memory. Saving a node, opening the dashboard or pressing the global refresh button does not execute API requests; use the node's refresh button. Select **저장 · 배치 완료** after adding or editing a node to persist its configuration.
+
 ## Local archive and credentials
 
 - Settings, favorites, and build summaries: `%LOCALAPPDATA%\IDPDashboard\dashboard.db`.
+- The personal dashboard layout is the `dashboard.layout` version 1 preference in that same SQLite database; it does not add an archive or connection-schema migration. An intentionally empty board is saved as empty. An invalid or newer saved layout is left untouched and the dashboard stays read-only until it can be read again.
 - Demo data: `%LOCALAPPDATA%\IDPDashboard\demo\dashboard.db`.
 - Credentials: Windows Credential Manager, service `IDPDashboard`, one random reference per saved credential. Tokens are not returned to the frontend or included in SQLite backups.
 - Archive records have no automatic expiry. Removing a connection keeps its build summaries. Monitor disk usage shown in the history view.

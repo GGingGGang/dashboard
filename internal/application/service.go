@@ -34,6 +34,7 @@ type Service struct {
 	cancel      context.CancelFunc
 	operations  sync.WaitGroup
 	closed      bool
+	jsonReader  JSONReader
 }
 type ConnectionView struct {
 	platform.Connection
@@ -52,9 +53,25 @@ type ConnectionInput struct {
 	Secret     string              `json:"secret"`
 }
 
-func New(ctx context.Context, store Store, credentials Credentials, registry *platform.Registry, demo bool) *Service {
+func New(ctx context.Context, store Store, credentials Credentials, registry *platform.Registry, demo bool, readers ...JSONReader) *Service {
 	ctx, cancel := context.WithCancel(ctx)
-	return &Service{ctx: ctx, cancel: cancel, store: store, credentials: credentials, registry: registry, runners: map[string]*runner{}, snapshots: map[string]platform.Snapshot{}, gate: make(chan struct{}, 2), demoMode: demo}
+	service := &Service{ctx: ctx, cancel: cancel, store: store, credentials: credentials, registry: registry, runners: map[string]*runner{}, snapshots: map[string]platform.Snapshot{}, gate: make(chan struct{}, 2), demoMode: demo}
+	if len(readers) > 0 {
+		service.jsonReader = readers[0]
+	}
+	return service
+}
+
+func (a *Service) ReadJSON(request platform.JSONRequest) (platform.JSONResult, error) {
+	ctx, done, _, err := a.begin("", 25*time.Second)
+	if err != nil {
+		return platform.JSONResult{}, err
+	}
+	defer done()
+	if a.jsonReader == nil {
+		return platform.JSONResult{}, errors.New("JSON 조회를 사용할 수 없습니다")
+	}
+	return a.jsonReader.Read(ctx, request)
 }
 func (a *Service) Start() error {
 	a.editMu.Lock()
