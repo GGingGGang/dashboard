@@ -1,3 +1,13 @@
+## Jenkins source migration — 2026-10-28
+
+Jenkins now declares its plugin manifest and publishes its default source. The
+collector leases that registration, rebuilds its cursor state on source revision
+changes, and wakes on source updates/deletion. Cancelled remote build responses
+are discarded before archive writes. Other providers retain their legacy path.
+`bash scripts/test-go.sh` passed, including Jenkins HTTP fixture collection,
+publisher invocation, disable/re-enable identity/archive preservation and late
+cancelled-build rejection. Native WebView2/live Jenkins were not exercised.
+
 # Verification record
 
 ## Plugin activation and scoped source lifecycle — 2026-10-28
@@ -21,7 +31,7 @@
   import boundaries and independent builds of all five provider adapters.
 - `npm run build` passed (existing bundle-size warning). The new lifecycle test
   passed at both viewport sizes. Full Playwright run: 66 passed, 2 failed before
-  functional assertions because Edge closed during newPage/goto. Both failed
+  functional assertions because the user manually closed Edge during newPage/goto (confirmed afterward). Both failed
   cases passed in a fresh `npm test -- --last-failed` run; no production fix or
   retry configuration was used to mask the browser failures.
 - Race tests were attempted but could not compile: the installed GCC reports

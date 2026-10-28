@@ -175,7 +175,11 @@ func (a *Service) start(c platform.SavedConnection) {
 	}
 	go func() {
 		defer close(r.done)
-		p, err := a.provider(c)
+		var p platform.Provider
+		var err error
+		if info.CollectionSource == "" {
+			p, err = a.provider(c)
+		}
 		if err != nil {
 			a.mu.Lock()
 			if ctx.Err() == nil {
@@ -184,8 +188,12 @@ func (a *Service) start(c platform.SavedConnection) {
 			a.mu.Unlock()
 			return
 		}
-		defer platform.CloseProvider(p)
+		if p != nil {
+			defer platform.CloseProvider(p)
+		}
 		poller := collector.NewCollector(c.Connection, p, a.store)
+		var sourceRevision uint64
+		var sourceChanges <-chan struct{}
 		info, _ := a.registry.Info(c.Connection.Kind)
 		interval := time.Duration(info.PollSeconds) * time.Second
 		for {
@@ -198,7 +206,30 @@ func (a *Service) start(c platform.SavedConnection) {
 				}
 				continue
 			}
-			snap := poller.Poll(pollCtx)
+			var snap platform.Snapshot
+			if info.CollectionSource == "" {
+				snap = poller.Poll(pollCtx)
+			} else {
+				sourceCtx := context.WithValue(pollCtx, runnerKey{}, r)
+				sources, sourceErr := a.sourceScope(sourceCtx, c)
+				if sourceErr == nil {
+					sourceChanges = sources.Changes()
+					callCtx, source, revision, releaseSource, acquireErr := sources.Acquire(sourceCtx, info.CollectionSource)
+					sourceErr = acquireErr
+					if acquireErr == nil {
+						if revision != sourceRevision {
+							poller = collector.NewCollector(c.Connection, source, a.store)
+							sourceRevision = revision
+						}
+						snap = poller.Poll(callCtx)
+						sourceErr = callCtx.Err()
+						releaseSource()
+					}
+				}
+				if sourceErr != nil {
+					snap = platform.Snapshot{ConnectionID: c.Connection.ID, Attempted: time.Now(), Error: sourceErr.Error(), Builds: []platform.Build{}, Queue: []platform.QueueItem{}, Deployments: []platform.Deployment{}, Rules: []platform.RuleResult{}}
+				}
+			}
 			stop()
 			release()
 			if ctx.Err() != nil {
@@ -212,6 +243,8 @@ func (a *Service) start(c platform.SavedConnection) {
 			timer := time.NewTimer(interval)
 			select {
 			case <-timer.C:
+			case <-sourceChanges:
+				timer.Stop()
 			case <-r.refresh:
 				if !timer.Stop() {
 					select {

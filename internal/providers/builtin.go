@@ -16,9 +16,21 @@ func BuiltinDefinitions() []platform.Definition {
 }
 
 func DefaultRegistry() *platform.Registry {
-	r, err := platform.NewRegistry(BuiltinDefinitions()...)
+	r, err := NewRegistry()
 	if err != nil {
 		panic(err)
 	}
 	return r
+}
+
+func NewRegistry(extensions ...platform.Definition) (*platform.Registry, error) {
+	definitions := []platform.Definition{argocd.Definition(), prometheus.Definition(), loki.Definition(), tempo.Definition()}
+	r, err := platform.NewRegistry(append(definitions, extensions...)...)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.RegisterPlugin(jenkins.Manifest(), jenkins.Definition()); err != nil {
+		return nil, err
+	}
+	return r, nil
 }

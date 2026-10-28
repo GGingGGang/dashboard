@@ -68,3 +68,26 @@ func TestCollectorSourceLossDoesNotEraseArchive(t *testing.T) {
 		t.Fatal("lost freshness evidence")
 	}
 }
+
+type cancelledCI struct {
+	fakeCI
+	cancel context.CancelFunc
+}
+
+func (f *cancelledCI) Builds(context.Context, string, int) ([]platform.Build, bool, error) {
+	f.cancel()
+	return f.builds, false, nil
+}
+func TestCancelledSourceCannotArchiveLateBuilds(t *testing.T) {
+	s := testStore(t)
+	c := connection("fixture", "http://localhost")
+	c.Targets = []platform.Target{{ID: "/job/app/"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &cancelledCI{cancel: cancel, fakeCI: fakeCI{builds: []platform.Build{{ConnectionID: c.ID, Job: c.Targets[0].ID, Number: 1, Started: 1000, Status: "SUCCESS"}}}}
+	NewCollector(c, p, s).Poll(ctx)
+	page, err := s.History(storage.HistoryFilter{})
+	if err != nil || page.Total != 0 {
+		t.Fatalf("cancelled data archived: %+v %v", page, err)
+	}
+}

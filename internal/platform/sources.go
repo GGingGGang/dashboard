@@ -43,13 +43,14 @@ type Sources struct {
 	revision   uint64
 	callID     uint64
 	closed     bool
+	changed    chan struct{}
 }
 
 var _ sdk.SourceRegistrar = (*Sources)(nil)
 
 func NewSources(parent context.Context) *Sources {
 	ctx, cancel := context.WithCancel(parent)
-	return &Sources{ctx: ctx, cancel: cancel, entries: map[string]*sourceEntry{}, resources: map[Provider]*sourceResource{}, identities: map[string]string{}}
+	return &Sources{changed: make(chan struct{}, 1), ctx: ctx, cancel: cancel, entries: map[string]*sourceEntry{}, resources: map[Provider]*sourceResource{}, identities: map[string]string{}}
 }
 
 func (s *Sources) Register(ctx context.Context, d sdk.SourceDescriptor, p Provider) error {
@@ -94,6 +95,10 @@ func (s *Sources) replace(ctx context.Context, d sdk.SourceDescriptor, p Provide
 	d.Capabilities = slices.Clone(d.Capabilities)
 	entryCtx, cancel := context.WithCancel(s.ctx)
 	s.revision++
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
 	s.entries[d.ID] = &sourceEntry{state: SourceState{SourceDescriptor: d, Revision: s.revision}, ctx: entryCtx, cancel: cancel, resource: resource, calls: map[uint64]context.CancelFunc{}}
 	var closeProvider Provider
 	if old != nil {
@@ -147,6 +152,10 @@ func (s *Sources) Delete(ctx context.Context, id string) error {
 		return errors.New("Source not found")
 	}
 	delete(s.entries, id)
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
 	cancelEntry(e)
 	e.resource.registrations--
 	p := s.retire(e.resource)
@@ -235,3 +244,6 @@ func (s *Sources) Close() {
 		_ = CloseProvider(p)
 	}
 }
+
+// Changes coalesces registrations so collectors can promptly reacquire sources.
+func (s *Sources) Changes() <-chan struct{} { return s.changed }

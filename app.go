@@ -39,7 +39,7 @@ func (windowsCredentials) Set(ref, value string) error {
 }
 func (windowsCredentials) Delete(ref string) error { return keyring.Delete("IDPDashboard", ref) }
 func NewApp(demoMode bool, extensions ...platform.Definition) *App {
-	registry, err := platform.NewRegistry(append(providers.BuiltinDefinitions(), extensions...)...)
+	registry, err := providers.NewRegistry(extensions...)
 	if err != nil {
 		panic(err)
 	}

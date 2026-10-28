@@ -22,6 +22,10 @@ func (c *Collector) pollBuilds(ctx context.Context, p platform.BuildSource, next
 			break
 		}
 		builds, more, e := p.Builds(ctx, t.ID, 0)
+		if ctx.Err() != nil {
+			next.Error = "Collection interrupted"
+			return
+		}
 		if e != nil {
 			next.Error = e.Error()
 			allOK = false
@@ -50,6 +54,10 @@ func (c *Collector) pollBuilds(ctx context.Context, p platform.BuildSource, next
 		}
 		if cursor >= 0 {
 			older, hasMore, e := p.Builds(ctx, t.ID, cursor)
+			if ctx.Err() != nil {
+				next.Error = "Collection interrupted"
+				return
+			}
 			if e != nil {
 				next.Error = e.Error()
 			} else if e = c.Store.SaveBuilds(older); e != nil {
@@ -83,6 +91,10 @@ func (c *Collector) pollBuilds(ctx context.Context, p platform.BuildSource, next
 			break
 		}
 		fresh, e := p.Build(ctx, old.Job, old.Number)
+		if ctx.Err() != nil {
+			next.Error = "Collection interrupted"
+			return
+		}
 		var ae *platform.APIError
 		if e != nil {
 			if errors.As(e, &ae) && ae.Status == 404 {

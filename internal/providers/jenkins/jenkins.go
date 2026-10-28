@@ -168,7 +168,7 @@ func (j *Jenkins) Queue(ctx context.Context) ([]platform.QueueItem, error) {
 // Definition registers this adapter and its supported capabilities.
 func Definition() platform.Definition {
 	return platform.Definition{
-		Info: platform.ProviderInfo{Kind: "jenkins", Name: "Jenkins", Category: "ci", Capabilities: []string{"builds", "queue", "history"}, DefaultAuth: "basic", AuthMethods: []string{"basic", "bearer", "none"}, PollSeconds: 15},
+		Info: platform.ProviderInfo{CollectionSource: "default", Kind: "jenkins", Name: "Jenkins", Category: "ci", Capabilities: []string{"builds", "queue", "history"}, DefaultAuth: "basic", AuthMethods: []string{"basic", "bearer", "none"}, PollSeconds: 15},
 		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
 			client, err := httpapi.New(c, secret)
 			if err != nil {
@@ -180,3 +180,17 @@ func Definition() platform.Definition {
 }
 
 func (p *Jenkins) Close() error { return p.api.Close() }
+
+// Manifest is declarative and can be read without creating a Jenkins client.
+func Manifest() platform.Manifest {
+	return platform.Manifest{ID: "jenkins", Version: "0.1.0", ContractVersion: platform.ContractVersion,
+		Providers:  []platform.ProviderContribution{{ID: "jenkins", Name: "Jenkins"}},
+		Cards:      []platform.CardContribution{{ID: "builds", Title: "Jenkins builds", Capability: "builds", Renderer: "table"}, {ID: "queue", Title: "Jenkins queue", Capability: "queue", Renderer: "table"}},
+		Dashboards: []platform.DashboardContribution{{ID: "overview", Title: "Jenkins", Cards: []string{"builds", "queue"}}},
+		Queries:    []platform.QueryContribution{{ID: "builds", Title: "Build lookup", Capability: "builds", Renderer: "table"}},
+	}
+}
+
+func (j *Jenkins) PublishSources(ctx context.Context, host platform.SourceRegistrar) error {
+	return host.Update(ctx, platform.SourceDescriptor{ID: "default", Name: "Jenkins", Capabilities: []string{"builds", "queue"}}, j)
+}
