@@ -1,6 +1,6 @@
 package prometheus
 
-import "idp-dashboard/internal/platform"
+import platform "github.com/GGingGGang/dashboard/sdk"
 
 // Presets provides the built-in Prometheus queries; other providers supply their own QueryInfo.
 func Presets() []platform.Rule {

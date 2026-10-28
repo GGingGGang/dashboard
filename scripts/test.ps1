@@ -11,6 +11,13 @@ try {
 } finally { Pop-Location }
 Push-Location $taskRoot
 try {
+	Push-Location 'sdk'
+	try {
+		go test ./... -count=1
+		if ($LASTEXITCODE -ne 0) { throw 'SDK tests failed' }
+		go vet ./...
+		if ($LASTEXITCODE -ne 0) { throw 'SDK vet failed' }
+	} finally { Pop-Location }
     go test ./... -count=1
     if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
     go vet ./...

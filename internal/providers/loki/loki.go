@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"idp-dashboard/internal/platform"
-	"idp-dashboard/internal/providers/internal/httpapi"
+	platform "github.com/GGingGGang/dashboard/sdk"
+	"github.com/GGingGGang/dashboard/sdk/httpapi"
 )
 
 type Loki struct{ api *httpapi.Client }

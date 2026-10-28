@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"idp-dashboard/internal/platform"
-	"idp-dashboard/internal/providers/internal/httpapi"
+	platform "github.com/GGingGGang/dashboard/sdk"
+	"github.com/GGingGGang/dashboard/sdk/httpapi"
 )
 
 type Prometheus struct{ api *httpapi.Client }

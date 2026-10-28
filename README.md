@@ -115,6 +115,12 @@ The browser preview is an explicitly labelled in-memory fixture, with `/?empty` 
 
 ## Contribution and scope
 
+Provider data contracts and the optional HTTP helper now live in the independent
+[extension SDK](sdk/README.md). Providers do not import core implementation
+packages. The SDK is unreleased and locally linked; manifest and lifecycle
+declarations are preparation for external plugins, not a working plugin installer.
+Use `bash scripts/test-go.sh` in Git Bash to check both Go modules.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the package layout, dependency rules, and four collection contracts, [CONTRIBUTING.md](CONTRIBUTING.md) for adapter registration, and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.
 
 Adapters live in `internal/providers/<name>` with their own metadata and tests, and are registered in `internal/providers/builtin.go`. They are contributed as source and compiled with the app. There is no runtime plugin loader. Providers compose independent build, queue, deployment, and metric capabilities; a single provider can supply several. Metric query languages and defaults come from provider metadata. Authentication protocols outside the implemented flows still require explicit implementation. The archive still requires numeric build IDs and offset pagination; opaque IDs/cursors have not yet been generalized. Cross-platform packaging, remote multi-user access, full log retention, and notification delivery are outside this version.

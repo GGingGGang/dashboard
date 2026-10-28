@@ -1,5 +1,27 @@
 # Verification record
 
+## Public extension contracts — 2026-10-28
+
+- Extracted existing DTOs, capability interfaces, validation and ownership
+  helpers to the independent `sdk/` Go module. Core aliases preserve type identity
+  and serialized fields. Moved the provider HTTP client to `sdk/httpapi` without
+  changing transport behavior. Persistence and runtime registry stay in core.
+- All five provider production packages now import the SDK instead of core
+  internals. The architecture test compiles their actual sources in an independent
+  consumer module with only a local SDK dependency, `GOWORK=off`, `GOPROXY=off`
+  and `GOSUMDB=off`; this passed.
+- Application `go test ./... -count=1` and `go vet ./...` passed. SDK
+  `go test ./... -count=1` and `go vet ./...` passed separately. Tests include the
+  existing collector, SQLite, provider and HTTP fixtures plus independent SDK
+  client and import-boundary checks. `git diff --check` passed.
+- Added manifest, declarative UI contribution and scoped source-publication
+  contracts. These are unreleased declarations only: dynamic registry lifecycle,
+  manifest loading, source publication hooks and external execution are not yet
+  wired into the app. The runtime continues to use built-in definitions.
+- No frontend, schema or credential change. Browser tests, native WebView2,
+  live infrastructure and race tests were not run in this backend extraction.
+  No release executable was rebuilt. The SDK has not been published.
+
 ## Time-axis labels and HTTP jq nodes - 2026-10-15 16:29 KST
 
 - Ctrl+wheel now changes only the time range. Vertical bounds and node dimensions stay fixed. The separate “최근 값” heading was removed; the last visible sample value sits beside the graph on the right at its plotted height. The final correction uses the same 11px regular text as the axis labels. Three vertical ticks and nearest-sample time/value hover inspection are implemented.

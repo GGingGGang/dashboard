@@ -3,6 +3,7 @@ module idp-dashboard
 go 1.25.0
 
 require (
+	github.com/GGingGGang/dashboard/sdk v0.0.0
 	github.com/itchyny/gojq v0.12.17
 	github.com/wailsapp/wails/v2 v2.11.0
 	github.com/zalando/go-keyring v0.2.6
@@ -48,3 +49,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/GGingGGang/dashboard/sdk => ./sdk

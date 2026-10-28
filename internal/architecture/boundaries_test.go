@@ -13,6 +13,7 @@ import (
 // Check direct production imports; integration tests may compose several layers.
 func TestPackageBoundaries(t *testing.T) {
 	const prefix = "idp-dashboard/internal/"
+	const sdk = "github.com/GGingGGang/dashboard/sdk"
 	root := filepath.Join("..", "..", "internal")
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -40,7 +41,7 @@ func TestPackageBoundaries(t *testing.T) {
 			allowed := true
 			switch {
 			case pkg == "platform" || strings.HasPrefix(pkg, "platform/"):
-				allowed = standard
+				allowed = standard || dep == sdk
 			case pkg == "collector" || strings.HasPrefix(pkg, "collector/"):
 				allowed = standard || dep == prefix+"platform"
 			case pkg == "application" || strings.HasPrefix(pkg, "application/"):
@@ -50,7 +51,7 @@ func TestPackageBoundaries(t *testing.T) {
 			case pkg == "providers":
 				allowed = !local || dep == prefix+"platform" || strings.HasPrefix(dep, prefix+"providers/")
 			case strings.HasPrefix(pkg, "providers/"):
-				allowed = !local || dep == prefix+"platform" || dep == prefix+"providers/internal/httpapi"
+				allowed = !local
 			}
 			if !allowed {
 				t.Errorf("%s imports %s across its package boundary; see ARCHITECTURE.md", pkg, dep)

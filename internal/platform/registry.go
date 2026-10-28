@@ -7,14 +7,6 @@ import (
 	"sort"
 )
 
-// Definition is the only registration a new provider needs. The factory owns
-// protocol-specific authentication and translates APIs into capability contracts.
-type Definition struct {
-	Info     ProviderInfo
-	Validate func(Connection) error
-	Create   func(Connection, string) (Provider, error)
-}
-
 type Registry struct{ definitions map[string]Definition }
 
 func NewRegistry(definitions ...Definition) (*Registry, error) {

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"idp-dashboard/internal/platform"
+	platform "github.com/GGingGGang/dashboard/sdk"
 )
 
 type Client struct {

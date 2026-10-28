@@ -1,4 +1,4 @@
-package platform
+package sdk
 
 // APIError carries a sanitized upstream status; collection uses 404 to retain missing builds.
 type APIError struct {

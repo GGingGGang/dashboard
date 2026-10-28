@@ -8,9 +8,10 @@ The application composes capabilities instead of inheriting a universal data cla
 dashboard/
 ├── main.go                      # Wails entry point and window setup
 ├── app.go                       # Composition root, Windows credentials, Wails dialogs/bridge
+├── sdk/                         # Independent public contracts and optional HTTP helper
 ├── internal/
 │   ├── application/             # Shared use cases, lifecycle, storage/credential ports
-│   ├── platform/                # Shared models, capability interfaces, registry, validation
+│   ├── platform/                # Core registry, persistence DTOs, SDK compatibility aliases
 │   ├── collector/               # Polling policies; depends on capability and archive contracts
 │   ├── storage/                 # SQLite settings, build archive, preferences, backup
 │   ├── providers/
@@ -18,7 +19,7 @@ dashboard/
 │   │   ├── jenkins/             # API translation, metadata, fixture tests
 │   │   ├── argocd/              # API translation, session authentication, fixture tests
 │   │   ├── prometheus/          # API translation, PromQL presets, fixture/live tests
-│   │   └── internal/httpapi/    # Transport shared only within providers
+│   │   └── internal/httpapi/    # Core integration tests for SDK transport
 │   ├── demo/                   # Synthetic HTTP services and integration smoke test
 │   └── architecture/           # Production import-boundary regression test
 ├── frontend/src/
@@ -35,7 +36,7 @@ dashboard/
 └── scripts/                    # Repeatable build and test commands
 ```
 
-These are Go **packages inside one module**, with one root `go.mod`. Each adapter owns its implementation, metadata, and tests. Adding a tool does not require another repository, module, or executable.
+The application remains one Go module. `sdk/` is a separate, standard-library-only Go module, consumed through a local `replace` until a version is published. Each adapter owns its implementation, metadata and tests. Runtime plugin loading is not yet implemented.
 
 ## Dependency direction
 
@@ -50,24 +51,25 @@ flowchart TD
     App --> Providers["providers / built-in list"]
     App --> Platform["platform / contracts and registry"]
     Providers --> Adapters["jenkins / argocd / prometheus"]
-    Adapters --> HTTP["providers/internal/httpapi"]
-    Adapters --> Platform
-    HTTP --> Platform
+    Adapters --> HTTP["sdk/httpapi"]
+    Adapters --> SDK["public SDK contracts"]
+    HTTP --> SDK
+    Platform --> SDK
     Collector --> Platform
     Storage --> Platform
 ```
 
-- `platform` uses only the standard library. It cannot import providers, SQLite, or Wails.
+- `platform` depends only on the standard library and public SDK. It owns the core registry and persistence DTOs; existing data contracts are compatibility aliases. It cannot import providers, SQLite, or Wails.
 - `application` imports only the standard library, `platform`, and `collector`. It owns the `Store` and `Credentials` ports; tests supply a temporary SQLite store and fake credentials. CLI/MCP adapters can call the same service without importing Wails. No CLI/MCP server is included.
 - `collector` imports `platform` and the standard library. Its `BuildArchive` interface requires only `Known`, `SaveBuilds`, and `Running`; `application` passes its store port, and `app.go` supplies SQLite to that port.
 - `storage` knows the shared data models, but not providers or collection scheduling.
-- Each provider imports the contracts and optionally the shared HTTP client. Providers do not import one another, the collector, or storage.
+- Each provider imports the independent SDK contracts and optionally `sdk/httpapi`. Production adapters cannot import any application package, including `internal/platform`. Integration tests may compose the core registry and adapters.
 - `providers/builtin.go` owns the shipped registration list. A provider's `Definition()` owns metadata, construction, and optional provider-specific connection validation.
 - The frontend's `bridge/index.ts` selects Wails or the browser fixture. Charts consume normalized numeric series, without querying upstream APIs.
 
-`internal/architecture/boundaries_test.go` checks production Go imports during `go test ./...`. Integration tests may compose multiple layers. Go's nested `internal` directory also prevents packages outside `providers` from importing its HTTP helper.
+`internal/architecture/boundaries_test.go` checks production Go imports during `go test ./...`. Integration tests may compose multiple layers. `TestProvidersBuildOutsideCore` also compiles the actual adapters in a separate consumer module with only an SDK dependency and network resolution disabled. The HTTP helper is public within the SDK; its production code has no core dependencies.
 
-The current extension model is **source contributions compiled with the app**. Go's `internal/platform` is a contract for packages in this repository, not a separately versioned public SDK or runtime plugin API. An independently distributed plugin SDK would need an explicit compatibility and loading design.
+The current extension model is **source contributions compiled with the app**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. These declarations are not yet wired to the runtime: the app still uses the compiled registration list. See [SDK status](sdk/README.md).
 
 
 ## Data contracts
@@ -85,7 +87,7 @@ Targets may declare `capabilities`. A combined provider can return one target fo
 
 ## Responsibilities
 
-- `platform/model.go` defines normalized DTOs and independent capabilities. `registry.go` checks registration and interface/metadata consistency; `validation.go` checks shared connection fields.
+- `sdk/model.go` defines normalized DTOs and independent capabilities. Core `platform/registry.go` checks registration and interface/metadata consistency; `sdk/validation.go` checks shared connection fields.
 - `collector/collector.go` orchestrates one connection. `collect_builds.go`, `collect_queue.go`, `collect_deployments.go`, and `collect_metrics.go` own their respective collection policies.
 - `storage/sqlite.go` owns the unchanged archive schema, connection settings, preferences, and backup behavior.
 - `providers/<name>` owns API paths, response decoding, platform authentication, supported configuration, and tests. PromQL presets live in `providers/prometheus/presets.go`.

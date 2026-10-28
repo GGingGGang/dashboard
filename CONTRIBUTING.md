@@ -1,6 +1,6 @@
 # Contributing an adapter
 
-The application owns polling, credentials, local persistence, and UI state. Each adapter translates an upstream API into the models in `internal/platform/model.go`.
+The application owns polling, credentials, local persistence, and UI state. Each adapter translates an upstream API into the models in `sdk/model.go`.
 
 ## Existing contract
 
@@ -17,7 +17,7 @@ For CI, `Builds` receives an offset, returns up to 100 newest-first rows and ind
 
 ## Add an implementation
 
-1. Add `internal/providers/<name>/<name>.go` and keep its `*_test.go` fixtures beside it. Implement the relevant interfaces from `internal/platform`. Use `internal/providers/internal/httpapi` for read requests, authentication, verified TLS, cancellation, timeouts, bounded responses, and sanitized errors. The sole current POST is the explicitly selected Argo CD session login. Construct API paths from validated identifiers; never request an arbitrary URL supplied by upstream JSON.
+1. Add `internal/providers/<name>/<name>.go` and keep its `*_test.go` fixtures beside it. Implement the relevant interfaces from `internal/platform`. Use `sdk/httpapi` for read requests, authentication, verified TLS, cancellation, timeouts, bounded responses, and sanitized errors. The sole current POST is the explicitly selected Argo CD session login. Construct API paths from validated identifiers; never request an arbitrary URL supplied by upstream JSON.
 2. Export `Definition() platform.Definition` containing `Info` and a `Create(Connection, secret)` factory. Include an optional `Validate(Connection) error` for provider-specific constraints checked before saving and construction. Add its import and `Definition()` to `internal/providers/builtin.go`; custom builds can instead pass it to `NewApp(demoMode, definition)` in `main.go`. Include name, category, default authentication, supported `AuthMethods`, capabilities, `PollSeconds`, and query metadata when applicable. Set `OnDemand: true` for providers that should run only on explicit requests; existing built-ins retain polling. Implement `io.Closer` when an instance owns transport/session resources, and cooperate with context cancellation. No collector or storage switch needs a new provider name. The registry rejects duplicate names and mismatches between interfaces and declared capabilities.
 3. Add `httptest` fixtures for successful reads, authentication failures, missing data, unknown states, cancellation, and the relevant pagination/identifier edge cases. Tests must not require personal infrastructure or real tokens.
 4. For CI/CD, test the collector and archive behavior with the new adapter. For monitoring, prove the documented result limits and empty/stale/error handling. Add a regression case when changing semantics.
@@ -34,13 +34,13 @@ Do not add provider-specific polling to the frontend, bake in cluster addresses,
 | --- | --- |
 | Another platform using existing capabilities | `internal/providers/<name>/`, then `internal/providers/builtin.go` |
 | Another query language using numeric series | Provider `Definition().Info.Query` and `MetricSource.Query` |
-| A genuinely new data capability | `internal/platform`, `internal/collector`, and its frontend view |
+| A genuinely new data capability | Public `sdk`, core handling, and its frontend view |
 | Archive behavior or backup | `internal/storage` |
 | Chart display | `frontend/src/components/chart.ts` |
 | Application policy and request lifecycle | `internal/application` (no Wails, concrete storage, keyring, or provider imports) |
 | Wails bridge and browser fixture | `app.go`, `frontend/src/bridge` |
 
-The package layout and allowed dependency direction are documented in [ARCHITECTURE.md](ARCHITECTURE.md). `go test ./...` checks production import boundaries so a provider cannot silently take a dependency on storage or another adapter. Keep one root `go.mod`; these are source-level packages in the same application, not independently versioned plugins.
+The package layout and allowed dependency direction are documented in [ARCHITECTURE.md](ARCHITECTURE.md). `go test ./...` checks production import boundaries so a provider cannot silently take a dependency on storage or another adapter. Provider production code imports `github.com/GGingGGang/dashboard/sdk` and optionally its `httpapi` subpackage, never application internals. The SDK has its own `go.mod` and is currently consumed using a local replacement. Runtime package installation is not yet implemented. See [SDK contracts and status](sdk/README.md).
 
 Use [Jenkins](internal/providers/jenkins/jenkins.go) for build/queue examples, [Argo CD](internal/providers/argocd/argocd.go) for deployments and session login, and [Prometheus](internal/providers/prometheus/prometheus.go) for numeric queries. If the new tool fits an existing capability and authentication flow, do not add provider-name conditions to the collector or frontend.
 
@@ -54,3 +54,5 @@ Provider factories validate local configuration and create local clients; they m
 The Wails `TestConnection` method returns `{targets, discovery, warning}`. Only `discovery: complete` establishes successful listing, including an empty list. `unsupported` and `failed` permit direct target entry after a successful probe. Update Go, TypeScript, preview fixtures, and browser tests together when changing this contract.
 
 `SearchLogs`, `SearchTraces`, and `Trace` return typed data with an `Observation` envelope. Return upstream partial data with an error; Application records the error as a diagnostic without losing the data in the Wails bridge. Cancellation rejects the entire obsolete operation. Built-in errors must not contain credentials or raw HTTP response bodies. Bound every output, including failure paths; do not invent cursors or convert ns/IDs to JavaScript numbers. See the Loki/Tempo fixtures and `frontend/tests/observations.spec.ts`.
+
+For backend changes, `bash scripts/test-go.sh` runs SDK and application tests/vet from Git Bash. Root `go test ./...` alone does not include the nested SDK module. The PowerShell full test script also includes SDK checks.
