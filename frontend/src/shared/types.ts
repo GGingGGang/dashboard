@@ -15,6 +15,7 @@ export type Rule = {
   enabled: boolean;
 };
 export type Connection = {
+  config?: Record<string, unknown>;
   id: string;
   kind: string;
   name: string;

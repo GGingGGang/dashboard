@@ -1,3 +1,4 @@
+import type { ExtensionBinding } from "../bridge/extensions";
 import { api } from "../bridge";
 import type { Connection, State } from "../shared/types";
 import type { JSONRequest, JSONResult } from "../shared/json-query";
@@ -9,9 +10,9 @@ import "./dashboard.css";
 
 const kinds: Record<WidgetKind, string> = {
   builds: "빌드", queue: "빌드 대기열", deployments: "배포 상태",
-  metrics: "지표", logs: "로그", traces: "트레이스", json: "API 쿼리",
+  metrics: "지표", logs: "로그", traces: "트레이스", json: "API 쿼리", extension: "플러그인",
 };
-const queryKinds = new Set<WidgetKind>(["metrics", "logs", "traces", "json"]);
+const queryKinds = new Set<WidgetKind>(["metrics", "logs", "traces", "json", "extension"]);
 const clone = <T>(value: T): T => structuredClone(value);
 const bounded = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
 const ROW = 76, GAP = 12;
@@ -22,7 +23,7 @@ type Gesture = {
 
 export class DashboardController {
   private root: HTMLElement | null = null;
-  private layout: DashboardLayout = { version: 1, widgets: [] };
+  private layout: DashboardLayout = { version: 2, widgets: [] };
   private baseline: DashboardLayout = clone(this.layout);
   private loading: Promise<void> | null = null;
   private loadError = "";
@@ -37,7 +38,20 @@ export class DashboardController {
   private session = 0;
   private pendingJSON = new Map<string, JSONResult>();
 
-  constructor(private getState: () => State, private report: (message: unknown) => void, private openAPI: (widget?: DashboardWidget) => void = () => {}) {}
+  constructor(private getState: () => State, private report: (message: unknown) => void, private openAPI: (widget?: DashboardWidget) => void = () => {}, private openPlugins: (widget?: DashboardWidget) => void = () => {}) {}
+
+  async addExtension(extension: ExtensionBinding, connectionId: string, title: string, id?: string) {
+    this.loading ||= this.load(); await this.loading;
+    if (this.loadError || this.saving) throw new Error(this.loadError || "배치를 저장 중입니다.");
+    const old = id ? this.layout.widgets.find(w => w.id === id) : undefined;
+    if (id && !old) throw new Error("수정할 카드가 없습니다.");
+    const widget: DashboardWidget = old ? { ...old, extension, connectionId, title } : {
+      id: crypto.randomUUID(), kind: "extension", title, extension, connectionId,
+      targetId: "", expression: "", unit: "", period: 900, refreshSeconds: 60,
+      ...nextPosition(this.layout.widgets, 6, 4), w: 6, h: 4,
+    };
+    this.editing = true; this.change(placeWidget(this.layout.widgets, widget));
+  }
 
   async addJSON(request: JSONRequest, title: string, result: JSONResult, id?: string) {
     this.loading ||= this.load();
@@ -77,7 +91,11 @@ export class DashboardController {
 
   private async load() {
     try {
-      this.layout = parseLayout(await api.GetPreference(LAYOUT_KEY)) || defaultLayout(this.getState());
+      const raw = await api.GetPreference(LAYOUT_KEY);
+      this.layout = parseLayout(raw) || defaultLayout(this.getState());
+      if (raw && JSON.parse(raw).version === 1 && !await api.GetPreference(`${LAYOUT_KEY}.v1.backup`)) {
+        await api.SavePreference(`${LAYOUT_KEY}.v1.backup`, raw);
+      }
       this.baseline = clone(this.layout);
       this.loadError = "";
     } catch (error) {
@@ -117,7 +135,7 @@ export class DashboardController {
     this.bodyMarkup.clear();
     this.root.innerHTML = `<section class="dashboard-page">
       <header class="page-head dashboard-heading"><div><h2>내 대시보드</h2><p>보고 싶은 정보를, 편한 위치에.</p></div>
-      <div class="actions">${this.editing ? `<button id="dashboard-undo" ${!this.undo.length || this.saving ? "disabled" : ""}>되돌리기</button><button id="dashboard-add" ${this.layout.widgets.length >= MAX_WIDGETS || this.saving ? "disabled" : ""}>＋ 정보 추가</button><button id="dashboard-cancel" ${this.saving ? "disabled" : ""}>취소</button>` : ""}<button id="dashboard-edit" class="primary" ${this.loadError || this.saving ? "disabled" : ""}>${this.saving ? "저장 중…" : this.editing ? "저장 · 배치 완료" : "배치 편집"}</button></div></header>
+      <div class="actions">${this.editing ? `<button id="dashboard-undo" ${!this.undo.length || this.saving ? "disabled" : ""}>되돌리기</button><button id="dashboard-plugins">플러그인 정보 추가</button><button id="dashboard-add" ${this.layout.widgets.length >= MAX_WIDGETS || this.saving ? "disabled" : ""}>＋ 정보 추가</button><button id="dashboard-cancel" ${this.saving ? "disabled" : ""}>취소</button>` : ""}<button id="dashboard-edit" class="primary" ${this.loadError || this.saving ? "disabled" : ""}>${this.saving ? "저장 중…" : this.editing ? "저장 · 배치 완료" : "배치 편집"}</button></div></header>
       ${this.loadError ? `<div class="notice error" role="alert">저장된 배치를 열지 못했습니다. 기존 배치는 덮어쓰지 않았습니다.<br>${esc(this.loadError)}<button id="dashboard-reload">다시 불러오기</button></div>` : ""}
       ${this.saveError ? `<div class="notice error" role="alert">배치 저장 실패: ${esc(this.saveError)}<br>편집 내용은 이 창에 남아 있습니다. 저장을 다시 시도하세요.</div>` : ""}
       <div class="dashboard-status"><span>${this.editing ? "배치 편집 중" : "내 작업 공간"}</span><span id="dashboard-message" role="status" aria-live="polite">${this.editing ? dirty ? "저장하지 않은 변경사항" : "제목을 끌어 이동 · 모서리로 크기 조절" : `${this.layout.widgets.length}개 정보 · 배치 고정`}</span></div>
@@ -125,6 +143,7 @@ export class DashboardController {
       <div id="dashboard-board" class="dashboard-board ${this.editing ? "is-editing" : ""}" aria-label="대시보드 배치 영역"></div>
       <dialog id="dashboard-widget-dialog" class="dialog" aria-labelledby="dashboard-widget-title"><form id="dashboard-widget-form"></form></dialog>
     </section>`;
+    this.root.querySelector<HTMLButtonElement>("#dashboard-plugins")?.addEventListener("click", () => this.openPlugins());
     const board = this.board()!;
     if (!this.loadError && !this.layout.widgets.length) {
       board.innerHTML = `<div class="dashboard-empty"><h3>${this.getState().connections.length ? "내 작업 공간을 구성해보세요" : "첫 번째 도구를 연결하세요"}</h3><p>${this.getState().connections.length ? "배치 편집에서 원하는 정보를 추가할 수 있습니다." : "도구를 연결한 뒤 빌드·배포·지표를 원하는 위치에 놓을 수 있습니다."}</p>${this.getState().connections.length ? "" : '<button class="primary" data-add>연결 추가</button>'}</div>`;
@@ -227,7 +246,7 @@ export class DashboardController {
     if (this.saving || !this.editing) return;
     this.undo.push(clone(this.layout));
     if (this.undo.length > 30) this.undo.shift();
-    this.layout = { version: 1, widgets };
+    this.layout = { version: 2, widgets };
     this.saveError = "";
     this.data?.update(widgets);
     this.render();
@@ -262,7 +281,8 @@ export class DashboardController {
   private openEditor(existing?: DashboardWidget) {
     if (!this.root || this.saving) return;
     if (existing?.kind === "json") { this.openAPI(existing); return; }
-    const available = (Object.keys(kinds) as WidgetKind[]).filter(k => k === "json" || this.compatible(k).length);
+    if (existing?.kind === "extension") { this.openPlugins(existing); return; }
+    const available = (Object.keys(kinds) as WidgetKind[]).filter(k => k !== "extension" && (k === "json" || this.compatible(k).length));
     if (!available.length) { this.report("먼저 연결 설정에서 사용할 도구를 연결하세요."); return; }
     const kind = existing?.kind || available[0];
     if (kind === "json") { this.openAPI(); return; }
@@ -329,7 +349,7 @@ export class DashboardController {
         draft.title = draft.title.trim();
         draft.x = Math.min(draft.x, COLUMNS - draft.w);
         const widgets = placeWidget(this.layout.widgets, draft);
-        parseLayout(JSON.stringify({ version: 1, widgets }));
+        parseLayout(JSON.stringify({ version: 2, widgets }));
         dialog.close(); this.change(widgets);
       } catch (error) { form.querySelector("#dashboard-widget-error")!.textContent = String(error); }
     };

@@ -69,7 +69,7 @@ flowchart TD
 
 `internal/architecture/boundaries_test.go` checks production Go imports during `go test ./...`. Integration tests may compose multiple layers. `TestProvidersBuildOutsideCore` also compiles the actual adapters in a separate consumer module with only an SDK dependency and network resolution disabled. The HTTP helper is public within the SDK; its production code has no core dependencies.
 
-The current extension model is **source contributions compiled with the app**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. Compiled definitions now enter an atomic plugin registry, with persisted enable/disable and scoped source publication through explicit Source APIs. The app still uses the compiled registration list; external loading and contributed UI are not implemented. See [SDK status](sdk/README.md).
+The current extension model is **source contributions compiled with the app**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. Compiled definitions now enter an atomic plugin registry, with persisted enable/disable and scoped source publication through explicit Source APIs. The app still uses the compiled registration list; contributed UI is manifest-driven; external loading remains phase 5. See [SDK status](sdk/README.md).
 
 
 ## Data contracts
@@ -94,7 +94,7 @@ Targets may declare `capabilities`. A combined provider can return one target fo
 - `application.Service` owns configuration changes, credential bindings through a port, admission, polling, manual operations, snapshots, history, preferences, and backup use cases.
 - `app.go` owns service composition, OS credential access, the database path, demo startup, native dialogs, window geometry, and explicit Wails forwarding methods.
 - `platform/persistence.go` contains storage-neutral record/filter/page DTOs. Storage aliases preserve existing Go callers; SQL, schema version, archive key, remain unchanged. Connection JSON now supports tenant and schemaVersion; unknown fields are preserved when editing.
-- `components/dashboard-layout.ts` owns the strict `dashboard.layout` v1 preference format: no overlapping cards, 12 columns, and at most 24 cards. A failed or future version is never rewritten by the frontend.
+- `components/dashboard-layout.ts` owns the strict `dashboard.layout` v2 preference format with v1 migration and backup: no overlapping cards, 12 columns, and at most 24 cards. A failed or future version is never rewritten by the frontend.
 - `components/dashboard.ts` owns the dashboard editing transaction. It keeps a saved baseline plus undo history, commits only through the existing preference bridge, and restores the baseline on cancel. In a narrow board it presents cards vertically while retaining the wide-grid coordinates.
 - `components/dashboard-data.ts` owns per-card data state. Build, queue, and deployment cards render already-collected snapshots. Metric, log, and trace cards issue explicit bounded queries only while their cards are mounted, serialize at most two active requests, discard stale layout results, and stop timers when the dashboard unmounts.
 
@@ -127,7 +127,7 @@ Logs and traces now have independent typed contracts and bounded on-demand explo
 
 This implementation adopts the application boundary, optional discovery, explicit on-demand policy, ownership copies, and cooperative lifecycle portions of the design brief. It does not mark all 22 proposed invariants as implemented.
 
-- Keep typed observations and compiled-in definitions. Loki and Tempo are additional compiled-in adapters. A dynamic schema engine, public SDK, and subprocess runtime remain outside this implementation.
+- Keep typed observations and compiled-in definitions. Loki and Tempo are additional compiled-in adapters. The public SDK and restricted declarative schemas are implemented; subprocess runtime remains phase 5.
 - Assign a fresh opaque runtime revision to each configured connection lifecycle. Edits, deletion, and credential replacement cancel the old lifetime. Failed persistence restarts the previous configuration under a fresh lifetime. Revision is visible in ConnectionView but is not a stored schema version.
 - Polling owns one provider per connection lifetime; manual Query/TestConnection owns one provider per operation. Each closes an optional `io.Closer` after its last call. Built-in closers close idle HTTP connections. Failed registry capability validation also closes the constructed provider.
 - Query and TestConnection register with the host before acquiring the two-slot gate. Their 8/45-second deadlines include queue time; provider creation and credential access happen after admission. Poll has a 60-second cycle budget including queue time and each module has 12 seconds. Load-based fairness and target-level fan-out budgets remain separate work.
@@ -137,7 +137,7 @@ This implementation adopts the application boundary, optional discovery, explici
 
 Regression evidence lives in `internal/application/service_test.go`, `internal/collector/ownership_test.go`, `frontend/tests/provider-lifecycle.spec.ts`, and the application import-boundary check. Tests use synthetic providers/local data, not live vendor acceptance or an independent SDK.
 
-Still open: target-level partial outcomes and migration of existing sources to common envelopes; build identity/cursor semantics and schema migration; orphan credential cleanup after OS-store failures; dynamic configuration schema UI; and full secret redaction of arbitrary third-party diagnostics. The current numeric build/offset and Argo-shaped deployment limitations remain explicit.
+Still open: target-level partial outcomes and migration of existing sources to common envelopes; build identity/cursor semantics and schema migration; orphan credential cleanup after OS-store failures; nested/advanced configuration schemas; and full secret redaction of arbitrary third-party diagnostics. The current numeric build/offset and Argo-shaped deployment limitations remain explicit.
 
 
 ## Log and trace observations (2026-10-13)
@@ -150,11 +150,11 @@ Connection JSON schema 0 (legacy) and 1 are accepted; saves write 1. Storage edi
 
 ## Personal dashboard layout (2026-10-15)
 
-`dashboard.layout` is a UI preference, separate from connection configuration, credentials, and archived builds. Its version 1 JSON contains only the ordered card definitions and their grid coordinates. The native SQLite preference API stores it unchanged as text; no backend table, Go model, migration, or new dependency is required. An empty layout is a meaningful saved preference. If parsing or validation fails, the UI keeps the stored text intact and disables editing rather than attempting a migration or replacement.
+`dashboard.layout` is a UI preference, separate from connection configuration, credentials, and archived builds. Its version 2 JSON contains ordered card definitions, grid coordinates and extension bindings. Valid v1 layouts migrate without moving cards and are backed up as `dashboard.layout.v1.backup` before a v2 save. The native SQLite preference API stores it unchanged as text; no backend table, Go model, migration, or new dependency is required. An empty layout is a meaningful saved preference. If parsing or validation fails, the UI keeps the stored text intact and disables editing rather than attempting a speculative replacement.
 
 The board is 12 columns wide with at most 24 non-overlapping cards. `dashboard-layout.ts` performs validation and placement. `dashboard.ts` handles pointer and keyboard editing, settings, save/cancel/undo state, responsive stacking, and card DOM. `dashboard-data.ts` separates snapshot cards from query cards: snapshots reuse collector state, while metrics, logs, and traces run dashboard-owned reads on opening, manual refresh, or an optional mounted-card interval. The latter is bounded to two concurrent requests and invalidates results when a card or its source configuration changes.
 
-The `json` node extends layout v1 with an exact `json` configuration (`source: http`, URL, jq filter), requires manual refresh and preserves existing node formats. Older clients reject this new kind rather than rewriting it. `api-query.ts` captures configuration, executes a manual preview and seeds the added node with that result without issuing a duplicate request. Results are not persisted. The UI invalidates old replies when settings or pages change.
+The `json` node originally extended layout v1 and remains supported in v2 with an exact `json` configuration (`source: http`, URL, jq filter), requires manual refresh and preserves existing node formats. Older clients reject this new kind rather than rewriting it. `api-query.ts` captures configuration, executes a manual preview and seeds the added node with that result without issuing a duplicate request. Results are not persisted. The UI invalidates old replies when settings or pages change.
 
 `App.ReadJSON` delegates to the application-owned `JSONReader` port. `Service.ReadJSON` reuses admission, cancellation and shutdown tracking with a 25-second overall budget. The composition root supplies `internal/jsonsource.Reader`, which performs unauthenticated GET and embedded gojq evaluation. No provider connection or credential store is involved; no shell process is started. HTTP is bounded to 20 seconds/8 MiB, and jq receives a cooperative 2-second context with 200 outputs/1 MiB display bounds. This is an in-process interpreter, not a resource-isolated subprocess sandbox. JSON scalar values cross the frontend bridge as exact text, not JS numbers.
 
@@ -187,7 +187,29 @@ resource map so repeated updates do not retain closed clients.
 `Sources` and `QuerySource` are explicit Wails APIs; metric queries use existing
 connection/global admission. Publication failure rolls back all accepted sources
 and can be retried. These APIs are the first consumers of the new source registry.
-The existing collector and legacy query methods remain on their compatibility
-path until provider migration (starting with Jenkins); source-only updates do not
-yet reconfigure that legacy path. Plugin disable/connection replacement stops both
-paths. The management screen and declarative plugin screens are later phases.
+Jenkins collection now leases its declared CollectionSource, wakes on source
+changes and resets transient collector state on replacement. Cancelled build
+responses are checked before archive writes. Remaining providers and legacy
+bridge queries retain compatibility paths until their migration.
+
+## Declarative contributions (phase 4)
+
+Manifest registration validates IDs, references, renderer/capability compatibility
+and schema keywords atomically. The frontend renders plugin management, dedicated
+dashboards and query forms. Global dashboard v2 cards retain their bindings when
+unavailable. ExecuteContribution resolves a live declaration, validates/defaults
+input, acquires a source under connection admission, dispatches a typed capability
+and copies a bounded result. It rejects stale source, connection and plugin
+activation revisions, including a UI-only plugin reading another provider's source.
+Such cross-plugin calls finish cooperatively or time out; disabling a UI-only
+plugin invalidates results without closing another plugin's provider.
+
+SDK DataSource provides table/scalar/timeseries for new domains. Existing typed
+sources keep their contracts and archive semantics; core converts their records
+for declarative display. Schemas are closed flat objects, shared by forms and
+backend validation. Non-secret provider values live in Connection.Config and are
+copied with settings. See [SDK contract](sdk/README.md) for limits and keywords.
+
+Trusted ZIP loading and JSON-RPC stdio execution remain phase 5. Argo CD,
+Prometheus, Loki, Tempo and JSON migration remain phase 6. No arbitrary frontend
+scripts, upstream writes or process isolation are claimed by phase 4.

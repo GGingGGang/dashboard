@@ -1,6 +1,10 @@
 package main
 
-import "idp-dashboard/internal/platform"
+import (
+	sdk "github.com/GGingGGang/dashboard/sdk"
+	"idp-dashboard/internal/application"
+	"idp-dashboard/internal/platform"
+)
 
 func (a *App) Plugins() []platform.PluginState { return a.registry.Plugins() }
 
@@ -23,4 +27,11 @@ func (a *App) QuerySource(id, sourceID string, q platform.Query) (platform.Query
 		return platform.QueryResult{}, err
 	}
 	return a.service.QuerySource(id, sourceID, q)
+}
+
+func (a *App) ExecuteContribution(connectionID, sourceID string, request application.ContributionRequest) (sdk.DataResult, error) {
+	if err := a.ready(); err != nil {
+		return sdk.DataResult{}, err
+	}
+	return a.service.ExecuteContribution(connectionID, sourceID, request)
 }

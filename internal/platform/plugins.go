@@ -11,6 +11,7 @@ import (
 )
 
 type PluginState struct {
+	Revision uint64       `json:"revision"`
 	Manifest sdk.Manifest `json:"manifest"`
 	Enabled  bool         `json:"enabled"`
 }
@@ -36,6 +37,9 @@ func (r *Registry) RegisterPlugin(m sdk.Manifest, definitions ...Definition) err
 	}
 	if _, err := json.Marshal(m); err != nil {
 		return errors.New("Invalid plugin schema JSON")
+	}
+	if err := validateContributions(m); err != nil {
+		return err
 	}
 	normalized, err := normalizeDefinitions(definitions)
 	if err != nil {
@@ -68,7 +72,7 @@ func (r *Registry) RegisterPlugin(m sdk.Manifest, definitions ...Definition) err
 		r.definitions[kind] = d
 		r.owners[kind] = m.ID
 	}
-	r.plugins[m.ID] = PluginState{Manifest: cloneManifest(m), Enabled: true}
+	r.plugins[m.ID] = PluginState{Manifest: cloneManifest(m), Enabled: true, Revision: 1}
 	return nil
 }
 
@@ -104,6 +108,9 @@ func (r *Registry) SetPluginEnabled(id string, enabled bool) error {
 	p, ok := r.plugins[id]
 	if !ok {
 		return errors.New("Plugin not found")
+	}
+	if p.Enabled != enabled {
+		p.Revision++
 	}
 	p.Enabled = enabled
 	r.plugins[id] = p

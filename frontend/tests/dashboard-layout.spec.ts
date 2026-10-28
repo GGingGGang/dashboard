@@ -7,7 +7,7 @@ const widget = (id: string, x = 0, y = 0): DashboardWidget => ({ id, kind: "buil
 test("layout rejects malformed, future, and duplicate saved widgets", () => {
   expect(parseLayout("")).toBeNull();
   expect(() => parseLayout("not json")).toThrow(/JSON/);
-  expect(() => parseLayout('{"version":2,"widgets":[]}')).toThrow(/지원하지 않는/);
+  expect(() => parseLayout('{"version":3,"widgets":[]}')).toThrow(/지원하지 않는/);
   expect(() => parseLayout(JSON.stringify({ version: 1, widgets: [widget("same"), widget("same", 3)] }))).toThrow(/중복/);
   expect(() => parseLayout(JSON.stringify({ version: 1, widgets: [widget("one"), widget("two", 1)] }))).toThrow(/겹/);
 });
@@ -57,5 +57,12 @@ test("default cards use supported providers and target capabilities", () => {
 });
 
 test("an explicitly empty saved layout stays empty", () => {
-  expect(parseLayout('{"version":1,"widgets":[]}')).toEqual({ version: 1, widgets: [] });
+  expect(parseLayout('{"version":1,"widgets":[]}')).toEqual({ version: 2, widgets: [] });
+});
+
+test("v1 migration preserves widgets and v2 retains missing plugin bindings", () => {
+  const legacy = widget("preserved", 6, 4);
+  expect(parseLayout(JSON.stringify({version: 1, widgets: [legacy]}))).toEqual({version: 2, widgets: [legacy]});
+  const extension = {...widget("external"), kind: "extension", extension: {pluginId: "missing", kind: "card", id: "count", sourceId: "default", input: {region: "local"}}};
+  expect(parseLayout(JSON.stringify({version: 2, widgets: [extension]}))?.widgets[0]).toEqual(extension);
 });

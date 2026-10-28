@@ -1,3 +1,5 @@
+import type { DataResult } from "../bridge/extensions";
+import { contribution, extensionKey, renderData } from "./extensions";
 import { api } from "../bridge";
 import { badge, date, elapsed, esc } from "../shared/format";
 import type {
@@ -14,6 +16,7 @@ import type { DashboardWidget } from "./dashboard-layout";
 import type { JSONResult } from "../shared/json-query";
 
 type RemoteResult =
+  | { kind: "extension"; value: DataResult }
   | { kind: "json"; value: JSONResult }
   | { kind: "metrics"; value: QueryResult }
   | { kind: "logs"; value: LogResult }
@@ -30,7 +33,7 @@ type GraphView = { scale: number; left: number };
 const fullGraph: GraphView = { scale: 1, left: 0 };
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
-const REMOTE = new Set<DashboardWidget["kind"]>(["metrics", "logs", "traces", "json"]);
+const REMOTE = new Set<DashboardWidget["kind"]>(["metrics", "logs", "traces", "json", "extension"]);
 const MAX_PERIOD = 24 * 60 * 60;
 const maxPeriod = (value: number) => Math.min(MAX_PERIOD, Math.max(1, Number(value) || 3600));
 const connectionKey = (connection: Connection | undefined) =>
@@ -174,6 +177,10 @@ export class DashboardData {
   }
 
   markup(widget: DashboardWidget) {
+    if (widget.kind === "extension") {
+      if (!widget.extension || !contribution(widget.extension)) return this.notice("플러그인 또는 기여 항목을 사용할 수 없습니다. 저장된 카드 설정은 유지됩니다.", "warning");
+      return this.remoteMarkup(widget);
+    }
     if (widget.kind === "json") return this.remoteMarkup(widget);
     const state = this.getState();
     const connection = connectionFor(state, widget.connectionId);
@@ -201,6 +208,7 @@ export class DashboardData {
   }
 
   private key(widget: DashboardWidget) {
+    if (widget.kind === "extension") return JSON.stringify([extensionKey(widget.extension!), connectionKey(connectionFor(this.getState(), widget.connectionId))]);
     if (widget.kind === "json") return JSON.stringify(widget.json);
     return JSON.stringify([widget.kind, widget.connectionId, widget.targetId, widget.expression, maxPeriod(widget.period), connectionKey(connectionFor(this.getState(), widget.connectionId))]);
   }
@@ -252,7 +260,7 @@ export class DashboardData {
     const state = this.getState();
     const connection = connectionFor(state, widget.connectionId);
     const target = connection && widget.targetId ? targetFor(connection, widget.targetId) : undefined;
-    if (widget.kind === "json" ? !widget.json : (!connection || !supports(state, connection, widget.kind) || !widget.expression.trim() || (widget.targetId && !target) || !targetSupports(target, widget.kind))) return;
+    if (widget.kind === "extension" ? (!connection || !widget.extension || !contribution(widget.extension)) : widget.kind === "json" ? !widget.json : (!connection || !supports(state, connection, widget.kind) || !widget.expression.trim() || (widget.targetId && !target) || !targetSupports(target, widget.kind))) return;
     const token = ++entry.token;
     const key = entry.key;
     entry.loading = true;
@@ -262,7 +270,9 @@ export class DashboardData {
     const end = Math.floor(Date.now() / 1000);
     const request = { expression: widget.expression, start: end - maxPeriod(widget.period), end };
     try {
-      const value = widget.kind === "json"
+      const value = widget.kind === "extension"
+        ? await api.ExecuteContribution(widget.connectionId, widget.extension!.sourceId, widget.extension!)
+        : widget.kind === "json"
         ? await api.ReadJSON(widget.json!)
         : widget.kind === "metrics"
         ? await api.Query(connection!.id, request)
@@ -330,7 +340,7 @@ export class DashboardData {
     const stale = entry.error ? this.notice(`마지막 결과를 표시합니다. 새 조회 실패: ${entry.error}`, "warning") : "";
     const pending = entry.loading ? `<span class="db-loading">새로고침 중…</span>` : "";
     const result = entry.result;
-    const body = result.kind === "json" ? `${result.value.scalar ? `<div class="db-current">${esc(result.value.text)}</div>` : `<pre class="db-json">${esc(result.value.json)}</pre>`}<details><summary>조회 결과 JSON · ${result.value.count}개</summary><pre class="db-json">${esc(result.value.json)}</pre></details>` : result.kind === "metrics" ? this.metrics(result.value, widget.unit, this.graphViews.get(widget.id) || fullGraph) : result.kind === "logs" ? this.logs(result.value) : this.traces(result.value);
+    const body = result.kind === "extension" ? renderData(result.value) : result.kind === "json" ? `${result.value.scalar ? `<div class="db-current">${esc(result.value.text)}</div>` : `<pre class="db-json">${esc(result.value.json)}</pre>`}<details><summary>조회 결과 JSON · ${result.value.count}개</summary><pre class="db-json">${esc(result.value.json)}</pre></details>` : result.kind === "metrics" ? this.metrics(result.value, widget.unit, this.graphViews.get(widget.id) || fullGraph) : result.kind === "logs" ? this.logs(result.value) : this.traces(result.value);
     return `${source}${stale}${pending}${body}`;
   }
 

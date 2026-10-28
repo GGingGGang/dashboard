@@ -1,3 +1,5 @@
+import { plugins, loadPlugins, schemaForm, readSchema } from "./components/extensions";
+import { mountPlugins } from "./components/plugin-page";
 import type {
   Build,
   Connection,
@@ -98,9 +100,13 @@ function toast(message: unknown) {
   }, 6500);
 }
 let apiEditing: DashboardWidget | undefined;
+let extensionEditing: DashboardWidget | undefined;
 const dashboard = new DashboardController(() => state, toast, widget => {
   apiEditing = widget;
   void changePage("api");
+}, widget => {
+  extensionEditing = widget;
+  void changePage(widget?.extension ? `plugin:${widget.extension.pluginId}` : "plugins");
 });
 document.querySelector("#app")!.innerHTML =
   `<div class="app-shell"><header class="top"><div class="brand"><div class="logo" aria-hidden="true">≋</div><div><div class="eyebrow">DEVELOPER OPERATIONS</div><h1>IDP Dashboard</h1></div></div><div class="actions"><span class="muted" id="connection-count"></span><button id="refresh" class="ghost">↻ 새로고침</button></div></header><nav class="nav" aria-label="주 메뉴">${[
@@ -112,6 +118,7 @@ document.querySelector("#app")!.innerHTML =
     ["traces", "트레이스 탐색"],
     ["api", "API 쿼리"],
     ["connections", "연결 설정"],
+    ["plugins", "플러그인"],
   ]
     .map(([id, label]) => `<button data-page="${id}">${label}</button>`)
     .join(
@@ -120,6 +127,7 @@ document.querySelector("#app")!.innerHTML =
 
 async function changePage(next: string) {
   if (next !== "api") apiEditing = undefined;
+  if (!next.startsWith("plugin:")) extensionEditing = undefined;
   queryRequest++;
   dashboard.unmount();
   page = next;
@@ -139,6 +147,12 @@ async function changePage(next: string) {
     .catch(() => {});
   if (pageGeneration !== generation) return;
   if (page === "dashboard") await dashboard.mount(document.querySelector<HTMLElement>("#page")!);
+  if (page === "plugins" || page.startsWith("plugin:")) {
+    const [, pluginId, dashboardId] = page.split(":");
+    await mountPlugins(document.querySelector<HTMLElement>("#page")!, state, () => generation === pageGeneration,
+      async (binding, connection, title, existing) => { await dashboard.addExtension(binding, connection, title, existing); await changePage("dashboard"); toast("카드를 반영했습니다. 저장 · 배치 완료를 누르면 보존됩니다."); },
+      async () => { state = await api.GetState(); updatePluginNav(); await changePage(page); }, pluginId, dashboardId, extensionEditing);
+  }
   if (page === "overview") renderOverview();
   if (page === "history") await renderHistory();
   if (page === "metrics") renderMetrics();
@@ -155,6 +169,15 @@ function renderExplorer() {
   const kind = page as "logs" | "traces";
   mountExplorer(document.querySelector<HTMLElement>("#page")!, kind, state, () => generation === gen && page === kind, connectionVersion);
 }
+function updatePluginNav() {
+  document.querySelectorAll("nav [data-plugin-nav]").forEach(el => el.remove());
+  document.querySelector("nav")!.insertAdjacentHTML("beforeend", plugins.filter(p => p.enabled).flatMap(p => (p.manifest.dashboards || []).map(d => `<button data-plugin-nav data-page="plugin:${esc(p.manifest.id)}:${esc(d.id)}">${esc(d.title)}</button>`)).join(""));
+}
+function providerSchema(kind: string) { return plugins.flatMap(p => p.manifest.providers || []).find(p => p.id === kind)?.configSchema; }
+function updateProviderForm() {
+  const root = document.querySelector<HTMLElement>("#provider-config");
+  if (root && editing) root.innerHTML = schemaForm(providerSchema(editing.kind), editing.config);
+}
 function updateChrome() {
   document.querySelector("#connection-count")!.textContent =
     `${state.connections.length}개 연결`;
@@ -169,6 +192,10 @@ async function poll() {
   pollBusy = true;
   try {
     const next = await api.GetState();
+    const catalogBefore = JSON.stringify(plugins);
+    await loadPlugins();
+    const pluginsChanged = catalogBefore !== JSON.stringify(plugins);
+    if (pluginsChanged) updatePluginNav();
     const connectionsChanged = JSON.stringify(next.connections) !== JSON.stringify(state.connections);
     if (connectionsChanged) {
       chartCache.clear();
@@ -176,6 +203,7 @@ async function poll() {
     }
     state = next;
     if (page === "dashboard") dashboard.update();
+    if ((pluginsChanged || connectionsChanged) && page.startsWith("plugin:")) await changePage(page);
     if (connectionsChanged && (page === "logs" || page === "traces")) { generation++; renderExplorer(); }
     updateChrome();
     const stamp = JSON.stringify([
@@ -563,6 +591,8 @@ async function editConnection(id?: string) {
       .join(
         "",
       )}</select></label><label>연결 이름<input name="name" required value="${esc(editing.name)}" placeholder="예: Production CI"></label><label class="span2">API 기본 주소<input name="url" type="url" required ${id ? "readonly" : ""} value="${esc(editing.url)}" placeholder="https://tools.example.com"></label><label>인증<select name="auth">${authOptions(editing)}</select></label><label>사용자명<input name="username" value="${esc(editing.username)}" autocomplete="off"></label><label class="span2"><span id="secret-label">API 토큰</span><input name="secret" type="password" autocomplete="new-password" placeholder="${editing.hasSecret ? "저장된 값 유지 · 교체할 때만 입력" : "조회용 자격증명 입력"}"></label><p id="auth-help" class="muted span2" role="note"></p><label>원본 화면 주소 · 선택<input name="browserUrl" type="url" value="${esc(editing.browserUrl)}" placeholder="API 주소와 다를 때"></label><label>사설 CA 파일 · 선택<div class="toolbar"><input name="caFile" style="flex:1" value="${esc(editing.caFile)}" placeholder="PEM 파일 경로"><button type="button" id="pick-ca">선택</button></div></label></div><div id="test-result" role="status" style="margin-top:15px"></div><div id="targets" class="targets"></div><div id="rules"></div>`;
+  document.querySelector("#connection-fields")!.insertAdjacentHTML("beforeend", '<div id="provider-config" class="form-grid"></div>');
+  updateProviderForm();
   document.querySelector("#connection-fields .form-grid")!.insertAdjacentHTML("beforeend", `<label>테넌트 ID · 선택<input name="tenant" maxlength="150" ${id ? "readonly" : ""} value="${esc(editing.tenant || "")}" placeholder="서버에서 테넌트를 구분할 때"></label>`);
   updateAuthControls();
   renderTargets();
@@ -638,6 +668,7 @@ function readConnection() {
   ] as const)
     c[k] = v(k).trim();
   c.kind = v("kind") || c.kind;
+  c.config = readSchema(document.querySelector<HTMLElement>("#provider-config")!, providerSchema(c.kind));
   c.targets = !hasTargets(c)
     ? []
     : discovered.flatMap((t, i) =>
@@ -853,6 +884,8 @@ document.addEventListener("change", async (e) => {
   }
   if (el.name === "kind" && editing) {
     editing.kind = el.value;
+    editing.config = {};
+    updateProviderForm();
     discovered = [];
     editing.targets = [];
     editing.rules = await api.Presets(editing.kind);
@@ -881,7 +914,7 @@ async function init() {
     const saved = await api.GetPreference("view");
     if (saved) {
       const v = JSON.parse(saved);
-      if (["dashboard", "overview", "history", "metrics", "logs", "traces", "api", "connections"].includes(v.page))
+      if (["dashboard", "overview", "history", "metrics", "logs", "traces", "api", "connections", "plugins"].includes(v.page) || (typeof v.page === "string" && /^plugin:[a-zA-Z0-9._-]+(?::[a-zA-Z0-9._-]+)?$/.test(v.page)))
         page = v.page;
       if (typeof v.scope === "string") scope = v.scope;
       if ([900, 3600, 21600, 86400].includes(v.period)) period = v.period;
@@ -889,6 +922,8 @@ async function init() {
     const f = await api.GetPreference("favorites");
     if (f) favorites = JSON.parse(f);
     state = await api.GetState();
+    await loadPlugins();
+    updatePluginNav();
     updateChrome();
     await changePage(page);
     setInterval(poll, 2000);

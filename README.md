@@ -42,6 +42,19 @@ Supply a **base URL**, including a reverse-proxy prefix if applicable; do not ap
 
 Connections are made from the PC. A private Kubernetes ClusterIP requires an existing route, VPN, or explicitly managed port-forward. The app does not create these. See [configuration examples](examples/README.md).
 
+## Plugin dashboards
+
+Open **플러그인** to enable/disable plugins or open their cards and queries.
+Jenkins supplies a dedicated dashboard. Choose a configured connection and source,
+fill the form, and use **내 대시보드에 추가**; **저장 · 배치 완료** saves the card
+alongside existing widgets. Disabled/missing plugins leave saved cards unavailable.
+Layout v1 is preserved in `dashboard.layout.v1.backup` before saving v2. Existing
+connections, credentials and build archives are retained.
+
+Plugins/providers depend on the independent [SDK](sdk/README.md), not core code.
+New domains use typed table/scalar/timeseries and declarative forms. Packages are
+still compiled into this version; runtime installation is not yet available.
+
 ## Views and interpretation
 
 - **내 대시보드**: a personal, persistent board of build, queue, deployment, metric, log, and trace cards. Use **배치 편집** to add a card, change its source connection and optional target or query, then give it a display name. On a wide window, drag a card title to move it, drag its lower-right corner to resize it, or focus the move/resize control and use arrow keys. Card settings also set width and height. **되돌리기** reverses the latest layout edit; **취소** restores the last saved layout; **저장 · 배치 완료** writes the whole layout. Narrow windows stack cards vertically: change card size in settings and edit the wide-screen position after widening the window.
@@ -117,8 +130,8 @@ The browser preview is an explicitly labelled in-memory fixture, with `/?empty` 
 
 Provider data contracts and the optional HTTP helper now live in the independent
 [extension SDK](sdk/README.md). Providers do not import core implementation
-packages. The SDK is unreleased and locally linked; core APIs now support plugin activation and scoped source lifecycle. External
-installation and plugin management screens are not implemented yet.
+packages. The SDK is unreleased and locally linked; core APIs now support plugin activation and scoped source lifecycle. Plugin management, manifest dashboards/queries and schema forms are implemented.
+External ZIP installation and subprocess execution remain the next phase.
 Use `bash scripts/test-go.sh` in Git Bash to check both Go modules.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the package layout, dependency rules, and four collection contracts, [CONTRIBUTING.md](CONTRIBUTING.md) for adapter registration, and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.

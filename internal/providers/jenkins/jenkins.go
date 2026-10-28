@@ -2,6 +2,7 @@ package jenkins
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -183,11 +184,12 @@ func (p *Jenkins) Close() error { return p.api.Close() }
 
 // Manifest is declarative and can be read without creating a Jenkins client.
 func Manifest() platform.Manifest {
+	schema := json.RawMessage(`{"type":"object","properties":{"targetId":{"type":"string","title":"Job path","maxLength":16384}},"required":["targetId"]}`)
 	return platform.Manifest{ID: "jenkins", Version: "0.1.0", ContractVersion: platform.ContractVersion,
 		Providers:  []platform.ProviderContribution{{ID: "jenkins", Name: "Jenkins"}},
-		Cards:      []platform.CardContribution{{ID: "builds", Title: "Jenkins builds", Capability: "builds", Renderer: "table"}, {ID: "queue", Title: "Jenkins queue", Capability: "queue", Renderer: "table"}},
+		Cards:      []platform.CardContribution{{ID: "builds", Title: "Jenkins builds", Capability: "builds", Renderer: "table", ConfigSchema: schema}, {ID: "queue", Title: "Jenkins queue", Capability: "queue", Renderer: "table"}},
 		Dashboards: []platform.DashboardContribution{{ID: "overview", Title: "Jenkins", Cards: []string{"builds", "queue"}}},
-		Queries:    []platform.QueryContribution{{ID: "builds", Title: "Build lookup", Capability: "builds", Renderer: "table"}},
+		Queries:    []platform.QueryContribution{{ID: "builds", Title: "Build lookup", Capability: "builds", Renderer: "table", InputSchema: schema}},
 	}
 }
 

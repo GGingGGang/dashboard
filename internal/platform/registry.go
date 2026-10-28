@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -107,6 +108,9 @@ func (r *Registry) Validate(c Connection) error {
 	if err != nil {
 		return err
 	}
+	if _, err := r.configured(c); err != nil {
+		return err
+	}
 	return validateDefinition(d, c)
 }
 
@@ -125,6 +129,10 @@ func validateDefinition(d Definition, c Connection) error {
 
 func (r *Registry) New(c Connection, secret string) (Provider, error) {
 	d, err := r.definition(c.Kind)
+	if err != nil {
+		return nil, err
+	}
+	c, err = r.configured(c)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +186,9 @@ func ValidateCapabilities(p Provider, declared []string) error {
 		return errors.New("Provider constructor returned no provider")
 	}
 	actual := []string{}
+	if _, ok := p.(sdk.DataSource); ok {
+		actual = append(actual, "data")
+	}
 	if _, ok := p.(BuildSource); ok {
 		actual = append(actual, "builds")
 	}
@@ -213,4 +224,25 @@ func ValidateCapabilities(p Provider, declared []string) error {
 		return errors.New("Duplicate provider capability")
 	}
 	return nil
+}
+
+func (r *Registry) configured(c Connection) (Connection, error) {
+	r.mu.RLock()
+	plugin := r.plugins[r.owners[c.Kind]]
+	r.mu.RUnlock()
+	for _, p := range plugin.Manifest.Providers {
+		if p.ID == c.Kind {
+			schema, err := sdk.ParseFormSchema(p.ConfigSchema)
+			if err != nil {
+				return c, err
+			}
+			values, err := schema.Values(c.Config)
+			if err != nil {
+				return c, err
+			}
+			c.Config, err = json.Marshal(values)
+			return c, err
+		}
+	}
+	return c, errors.New("Provider declaration missing")
 }

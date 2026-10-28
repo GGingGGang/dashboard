@@ -1,7 +1,8 @@
+import type { ExtensionBinding } from "../bridge/extensions";
 import type { State } from "../shared/types";
 import { validateJSONRequest, type JSONRequest } from "../shared/json-query";
 
-export type WidgetKind = "builds" | "queue" | "deployments" | "metrics" | "logs" | "traces" | "json";
+export type WidgetKind = "builds" | "queue" | "deployments" | "metrics" | "logs" | "traces" | "json" | "extension";
 
 export type DashboardWidget = {
   id: string;
@@ -18,9 +19,10 @@ export type DashboardWidget = {
   w: number;
   h: number;
   json?: JSONRequest;
+  extension?: ExtensionBinding;
 };
 
-export type DashboardLayout = { version: 1; widgets: DashboardWidget[] };
+export type DashboardLayout = { version: 2; widgets: DashboardWidget[] };
 
 export const LAYOUT_KEY = "dashboard.layout";
 export const MAX_WIDGETS = 24;
@@ -28,7 +30,7 @@ export const COLUMNS = 12;
 
 const MAX_PREFERENCE_BYTES = 1024 * 1024;
 const MAX_Y = 500;
-const kinds = new Set<WidgetKind>(["builds", "queue", "deployments", "metrics", "logs", "traces", "json"]);
+const kinds = new Set<WidgetKind>(["builds", "queue", "deployments", "metrics", "logs", "traces", "json", "extension"]);
 const periods = new Set([900, 3600, 21600, 86400]);
 const refreshes = new Set([0, 30, 60, 120]);
 const widgetKeys = new Set<keyof DashboardWidget>([
@@ -54,7 +56,7 @@ function sameKeys(value: RecordValue, expected: Set<string>, name: string) {
 }
 function validateWidget(value: unknown): DashboardWidget {
   if (!plain(value)) fail("위젯 형식이 올바르지 않습니다");
-  sameKeys(value, value.kind === "json" ? new Set([...widgetKeys, "json"]) : widgetKeys, "위젯");
+  sameKeys(value, value.kind === "json" ? new Set([...widgetKeys, "json"]) : value.kind === "extension" ? new Set([...widgetKeys, "extension"]) : widgetKeys, "위젯");
   const widget: DashboardWidget = {
     id: string(value.id, "id", 120), kind: string(value.kind, "kind", 20) as WidgetKind,
     title: string(value.title, "title", 120), connectionId: string(value.connectionId, "connectionId", 120),
@@ -67,6 +69,14 @@ function validateWidget(value: unknown): DashboardWidget {
   if (!kinds.has(widget.kind)) fail("지원하지 않는 위젯 종류입니다");
   if (!periods.has(widget.period)) fail("지원하지 않는 조회 기간입니다");
   if (!refreshes.has(widget.refreshSeconds)) fail("지원하지 않는 새로고침 주기입니다");
+  if (widget.kind === "extension") {
+    const binding = value.extension;
+    if (!plain(binding)) fail("플러그인 카드 바인딩이 올바르지 않습니다");
+    sameKeys(binding, new Set(["pluginId", "kind", "id", "sourceId", "input"]), "플러그인 바인딩");
+    for (const key of ["pluginId", "id", "sourceId"]) if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(string(binding[key], key, 128))) fail("플러그인 ID가 올바르지 않습니다");
+    if ((binding.kind !== "card" && binding.kind !== "query") || !plain(binding.input) || JSON.stringify(binding.input).length > 65536) fail("플러그인 입력이 올바르지 않습니다");
+    widget.extension = structuredClone(binding) as ExtensionBinding;
+  }
   if (widget.kind === "json") {
     widget.json = validateJSONRequest(value.json);
     if (widget.refreshSeconds !== 0) fail("API 노드는 수동으로 조회합니다");
@@ -99,11 +109,11 @@ export function parseLayout(raw: string): DashboardLayout | null {
   try { value = JSON.parse(raw); } catch { fail("저장된 JSON을 읽을 수 없습니다"); }
   if (!plain(value)) fail("저장된 형식이 올바르지 않습니다");
   sameKeys(value, new Set(["version", "widgets"]), "레이아웃");
-  if (value.version !== 1) fail("이 앱이 지원하지 않는 레이아웃 버전입니다");
+  if (value.version !== 1 && value.version !== 2) fail("이 앱이 지원하지 않는 레이아웃 버전입니다");
   if (!Array.isArray(value.widgets)) fail("widgets 값이 배열이 아닙니다");
   const widgets = checkedWidgets(value.widgets);
   rejectOverlaps(widgets);
-  return { version: 1, widgets };
+  return { version: 2, widgets };
 }
 
 function overlaps(a: DashboardWidget, b: DashboardWidget) {
@@ -147,7 +157,7 @@ function supports(state: State, kind: WidgetKind, connectionId: string, targetId
   return !!provider?.capabilities.includes(kind) && (!target || !target.capabilities?.length || target.capabilities.includes(kind) || (kind === "queue" && target.capabilities.includes("builds")));
 }
 
-const dimensions: Record<WidgetKind, [number, number]> = { builds: [4, 3], queue: [4, 3], deployments: [4, 3], metrics: [4, 4], logs: [6, 4], traces: [6, 4], json: [4, 3] };
+const dimensions: Record<WidgetKind, [number, number]> = { builds: [4, 3], queue: [4, 3], deployments: [4, 3], metrics: [4, 4], logs: [6, 4], traces: [6, 4], json: [4, 3], extension: [6, 4] };
 const label = (value: string, max: number) => value.slice(0, max);
 
 export function defaultLayout(state: State): DashboardLayout {
@@ -169,5 +179,5 @@ export function defaultLayout(state: State): DashboardLayout {
     const queue = targets.find(item => supports(state, "queue", connection.id, item.id) && snapshot?.queue.some(row => row.job === item.id));
     if (queue) add("queue", connection.id, `${queue.name} 대기열`, queue.id);
   }
-  return { version: 1, widgets };
+  return { version: 2, widgets };
 }

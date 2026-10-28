@@ -23,6 +23,7 @@ func CloneTargets(targets []Target) []Target {
 }
 
 func (c Connection) Clone() Connection {
+	c.Config = slices.Clone(c.Config)
 	c.Targets = CloneTargets(c.Targets)
 	c.Rules = slices.Clone(c.Rules)
 	return c

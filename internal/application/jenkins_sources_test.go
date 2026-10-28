@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers"
 	"idp-dashboard/internal/storage"
@@ -49,6 +50,10 @@ func TestJenkinsCollectsPublishedSourceAndPreservesArchive(t *testing.T) {
 	sources, err := a.Sources(id)
 	if err != nil || len(sources) != 1 || sources[0].Revision < 2 {
 		t.Fatalf("publisher not used: %+v %v", sources, err)
+	}
+	result, err := a.ExecuteContribution(id, "default", ContributionRequest{PluginID: "jenkins", Kind: "query", ID: "builds", Input: json.RawMessage(`{"targetId":"/job/app/"}`)})
+	if err != nil || result.Type != "table" || len(result.Rows) != 1 {
+		t.Fatalf("Jenkins contribution: %+v %v", result, err)
 	}
 	for _, enabled := range []bool{false, true} {
 		if err := a.SetPluginEnabled("jenkins", enabled); err != nil {

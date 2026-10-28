@@ -1,3 +1,30 @@
+## Declarative plugin contributions — 2026-10-28
+
+Phase 4 adds manifest-derived navigation, plugin management, dedicated dashboard
+and query forms, global extension cards, typed table/scalar/timeseries rendering,
+and non-secret provider config forms. Layout v1 migrates to v2 with original
+backup and retains unavailable plugin bindings. The SDK and providers stay
+independent of core imports; actual providers still compile outside the core.
+
+Validation:
+- Full SDK/root Go tests and vet passed (`bash scripts/test-go.sh`). Additional
+  application/platform checks passed after adding cross-plugin stale-response
+  coverage. Custom SDK-only DataSource exercises defaults, invalid-input rejection,
+  enable/disable, source deletion and activation-revision invalidation.
+- `npm run build` passed; the existing bundle-size warning remains (~657 kB).
+- Full Playwright suite: 74 passed in both wide/compact viewports. New cases cover
+  generic renderers, escaped HTML/large opaque IDs, schema validation, v1 backup,
+  saved card bindings and disable/re-enable recovery. Initial new-form test used
+  the wrong button label; its locator was corrected before the passing full run.
+  After final spacing/gap/boolean refinements, all 6 contribution tests passed;
+  wide/compact screenshots were inspected. Final application tests also passed,
+  including real Jenkins contribution dispatch and int64-to-text preservation.
+- Native WebView2 and live services were not exercised; no release executable was
+  rebuilt. Race tests remain unavailable with the installed 32-bit-only GCC.
+
+External ZIP installation/stdio execution and remaining provider migrations are
+phases 5 and 6. No claims of hot package installation or process isolation yet.
+
 ## Jenkins source migration — 2026-10-28
 
 Jenkins now declares its plugin manifest and publishes its default source. The

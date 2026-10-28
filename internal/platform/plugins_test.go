@@ -84,3 +84,25 @@ func TestTypedNilAndUnknownCapabilityRejected(t *testing.T) {
 		t.Fatal("accepted unknown capability")
 	}
 }
+
+func TestInvalidContributionsNeverEnterRegistry(t *testing.T) {
+	cases := []sdk.Manifest{
+		{Cards: []sdk.CardContribution{{ID: "x", Title: "X", Capability: "data", Renderer: "script"}}},
+		{Cards: []sdk.CardContribution{{ID: "x", Title: "X", Capability: "unknown", Renderer: "table"}}},
+		{Cards: []sdk.CardContribution{{ID: "x", Title: "X", Capability: "builds", Renderer: "scalar"}}},
+		{Dashboards: []sdk.DashboardContribution{{ID: "view", Title: "View", Cards: []string{"missing"}}}},
+		{Cards: []sdk.CardContribution{{ID: "x", Title: "X", Capability: "data", Renderer: "scalar"}, {ID: "x", Title: "X", Capability: "data", Renderer: "scalar"}}},
+	}
+	for _, m := range cases {
+		r, _ := platform.NewRegistry()
+		m.ID = "fixture"
+		m.Version = "1"
+		m.ContractVersion = 1
+		if err := r.RegisterPlugin(m); err == nil {
+			t.Fatalf("invalid manifest accepted: %+v", m)
+		}
+		if len(r.Plugins()) != 0 {
+			t.Fatal("partial registration")
+		}
+	}
+}

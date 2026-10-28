@@ -59,18 +59,68 @@ ownership before atomic registration. It persists enabled/disabled choices and
 cancels affected connections when disabled. The scoped source registry implements
 register/update/delete with capability validation, revision cancellation and
 shared implementation lifetime. The host initializes `SourcePublisher` lazily on
-explicit `Sources` / `QuerySource` calls; `default` is initially registered by the
+`Sources`, `QuerySource`, `ExecuteContribution`, or opted-in collection calls; `default` is initially registered by the
 host for the configured provider. Source implementations must be non-nil pointers.
 After their final registration is removed, construct new instances rather than
 re-submitting an implementation whose ownership has ended. Source IDs cannot be
 reassigned to a different target within a scope.
 
-The application still loads compiled definitions. External package installation,
-stdio execution and contributed UI rendering are not implemented yet. Existing
-collector and legacy query calls retain their previous behavior until each plugin
-is migrated; they do not yet consume the scoped source registry. `QuerySource`
-currently exposes the metric contract. Plugins remain trusted in-process code,
-with cooperative cancellation. This unreleased SDK may change during migration.
+`ProviderInfo.CollectionSource` opts collection into a registered source.
+Jenkins publishes and collects `default`. Replacement cancels existing leases,
+wakes collection and resets transient cursors; persisted history and connection
+identity remain unchanged. Other collectors retain compatibility paths.
+
+## Declarative UI and new data domains (phase 4)
+
+The host reads Cards, Dashboards and Queries to build navigation, source selectors,
+input forms and results. Dashboards reference card IDs from their manifest. Cards
+and queries can be added to the personal board. Contributions may read any selected
+source with the required capability, including another plugin's provider. Build
+queries require a selected job from the saved connection.
+
+Renderers: `table`, `scalar`, `timeseries`. Existing builds, queue, deployments,
+logs and traces use table; metrics use timeseries. A new domain implements
+`DataSource.ReadData(ctx, input)` with capability `data`, returning a DataResult
+matching its declared renderer. No product branch or frontend script is needed.
+
+Example card (inside a manifest):
+
+```json
+{
+  "id": "inventory", "title": "Inventory", "capability": "data",
+  "renderer": "table",
+  "configSchema": {
+    "type": "object", "additionalProperties": false,
+    "properties": {"region": {"type": "string", "default": "local"}},
+    "required": ["region"]
+  }
+}
+```
+
+ProviderContribution.ConfigSchema applies to non-secret Connection.Config.
+CardContribution.ConfigSchema and QueryContribution.InputSchema describe query
+input. Contract v1 supports closed flat objects with string/number/integer/boolean
+fields, title/description, scalar enum/default, numeric minimum/maximum, string
+maxLength and required. Unknown keywords, nested objects and additional properties
+are rejected. Missing schemas accept empty objects. Defaults apply before client
+construction/querying. Secrets use the existing credential field and OS store,
+not Config. Schemas/inputs: at most 64 KiB, 40 fields, 100 choices per enum.
+
+Common typed-source inputs: `targetId` for builds, `expression` and `period` in
+seconds for metrics/logs/traces. Declare used inputs in the schema. Period defaults
+to 3600, bounded to 1–86400 seconds. Generic data receives validated input unchanged.
+Log/trace contributions fetch up to 100 rows.
+
+Table columns declare string/number/boolean; cells are matching scalars or null.
+Use strings for opaque IDs and integers beyond 2^53-1. Results are validated and
+copied: at most 4 MiB, 64 columns, 2000 rows, 100 series and 20000 points. Series
+timestamps are epoch seconds. Invalid results fail instead of being silently
+truncated. Text is escaped; stale source/connection/plugin responses are rejected.
+In-process cancellation remains cooperative.
+
+Compiled definitions are still the package entry point. Trusted local ZIP install
+and subprocess execution are phase 5; remaining provider migrations are phase 6.
+This SDK is unreleased and may change during migration.
 
 ## Verification
 

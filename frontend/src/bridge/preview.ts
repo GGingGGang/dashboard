@@ -1,3 +1,4 @@
+import type { FormSchema } from "./extensions";
 import type {
   Build,
   Connection,
@@ -286,7 +287,11 @@ export function previewBridge(empty = false): Bridge {
       return state.providers.map(p => ({
         manifest: { id: p.kind, version: "0.1.0", contractVersion: 1,
           providers: [{ id: p.kind, name: p.name, executable: "", configSchema: null }],
-          cards: null, dashboards: null, queries: null },
+          cards: p.kind === "jenkins" ? [
+            {id: "builds", title: "Jenkins builds", capability: "builds", renderer: "table" as const, configSchema: {type: "object", properties: {targetId: {type: "string", title: "Job path"}}, required: ["targetId"]} as FormSchema},
+            {id: "queue", title: "Jenkins queue", capability: "queue", renderer: "table" as const}] : null,
+          dashboards: p.kind === "jenkins" ? [{id: "overview", title: "Jenkins", cards: ["builds", "queue"]}] : null,
+          queries: p.kind === "jenkins" ? [{id: "builds", title: "Build lookup", capability: "builds", renderer: "table" as const, inputSchema: {type: "object", properties: {targetId: {type: "string", title: "Job path"}}, required: ["targetId"]} as FormSchema}] : null },
         enabled: !disabled.has(p.kind),
       }));
     },
@@ -302,6 +307,16 @@ export function previewBridge(empty = false): Bridge {
       const p = (await this.GetState()).providers.find(p => p.kind === c.kind);
       const capabilities = (p?.capabilities || []).filter(c => ["builds", "queue", "deployments", "metrics", "logs", "traces"].includes(c));
       return [{ id: "default", name: c.name, capabilities, revision: 1 }];
+    },
+    async ExecuteContribution(id, sourceId, request) {
+      const plugin = (await this.Plugins()).find(p => p.manifest.id === request.pluginId && p.enabled);
+      const item = (request.kind === "card" ? plugin?.manifest.cards : plugin?.manifest.queries)?.find(c => c.id === request.id);
+      const source = (await this.Sources(id)).find(s => s.id === sourceId);
+      if (!item || !source?.capabilities.includes(item.capability)) throw new Error("Plugin contribution unavailable");
+      const snapshot = (await this.GetState()).snapshots.find(s => s.connectionId === id);
+      const rows = item.capability === "builds" ? (snapshot?.builds || []).filter(b => b.job === request.input.targetId) : snapshot?.queue || [];
+      const keys = Object.keys(rows[0] || {});
+      return {type: "table", columns: keys.map(name => ({name, type: "string"})), rows: rows.map(row => keys.map(k => String((row as unknown as Record<string, unknown>)[k] ?? "")))};
     },
     async QuerySource(id, sourceId, q) {
       const source = (await this.Sources(id)).find(s => s.id === sourceId);
