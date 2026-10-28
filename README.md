@@ -117,8 +117,8 @@ The browser preview is an explicitly labelled in-memory fixture, with `/?empty` 
 
 Provider data contracts and the optional HTTP helper now live in the independent
 [extension SDK](sdk/README.md). Providers do not import core implementation
-packages. The SDK is unreleased and locally linked; manifest and lifecycle
-declarations are preparation for external plugins, not a working plugin installer.
+packages. The SDK is unreleased and locally linked; core APIs now support plugin activation and scoped source lifecycle. External
+installation and plugin management screens are not implemented yet.
 Use `bash scripts/test-go.sh` in Git Bash to check both Go modules.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the package layout, dependency rules, and four collection contracts, [CONTRIBUTING.md](CONTRIBUTING.md) for adapter registration, and [VERIFICATION.md](VERIFICATION.md) for actual results and pending checks. OCI was the initial integration environment; its addresses are not compiled into the application.

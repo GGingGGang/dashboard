@@ -1,8 +1,13 @@
 import type { State, Connection, ConnectionTest, Query, QueryResult, HistoryFilter, Rule, Build } from "../shared/types";
 import type { SearchRequest, LogResult, TraceSearchResult, TraceResult } from "../shared/types";
 import type { JSONRequest, JSONResult } from "../shared/json-query";
+import type { PluginState, SourceState } from "./extensions";
 
 export type Bridge = {
+  Plugins(): Promise<PluginState[]>;
+  SetPluginEnabled(id: string, enabled: boolean): Promise<void>;
+  Sources(id: string): Promise<SourceState[]>;
+  QuerySource(id: string, sourceId: string, q: Query): Promise<QueryResult>;
   ReadJSON(request: JSONRequest): Promise<JSONResult>;
   GetState(): Promise<State>;
   SaveConnection(input: {

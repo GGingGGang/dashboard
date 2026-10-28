@@ -66,6 +66,10 @@ type SourceDescriptor struct {
 // The host owns accepted implementations and closes them after their last call;
 // a rejected implementation remains owned by the caller. A provider instance
 // registered for multiple sources must be closed only after all uses end.
+// In-process implementations use non-nil pointers for stable resource identity.
+// After the final registration is removed, do not re-submit that implementation:
+// its ownership has ended. Construct a new instance for subsequent registrations.
+// A source ID must not be reassigned to a different TargetID within the scope.
 type SourceRegistrar interface {
 	Register(context.Context, SourceDescriptor, Provider) error
 	Update(context.Context, SourceDescriptor, Provider) error

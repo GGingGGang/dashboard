@@ -60,7 +60,7 @@ flowchart TD
 ```
 
 - `platform` depends only on the standard library and public SDK. It owns the core registry and persistence DTOs; existing data contracts are compatibility aliases. It cannot import providers, SQLite, or Wails.
-- `application` imports only the standard library, `platform`, and `collector`. It owns the `Store` and `Credentials` ports; tests supply a temporary SQLite store and fake credentials. CLI/MCP adapters can call the same service without importing Wails. No CLI/MCP server is included.
+- `application` imports only the standard library, the public SDK, `platform`, and `collector`. It owns the `Store` and `Credentials` ports; tests supply a temporary SQLite store and fake credentials. CLI/MCP adapters can call the same service without importing Wails. No CLI/MCP server is included.
 - `collector` imports `platform` and the standard library. Its `BuildArchive` interface requires only `Known`, `SaveBuilds`, and `Running`; `application` passes its store port, and `app.go` supplies SQLite to that port.
 - `storage` knows the shared data models, but not providers or collection scheduling.
 - Each provider imports the independent SDK contracts and optionally `sdk/httpapi`. Production adapters cannot import any application package, including `internal/platform`. Integration tests may compose the core registry and adapters.
@@ -69,7 +69,7 @@ flowchart TD
 
 `internal/architecture/boundaries_test.go` checks production Go imports during `go test ./...`. Integration tests may compose multiple layers. `TestProvidersBuildOutsideCore` also compiles the actual adapters in a separate consumer module with only an SDK dependency and network resolution disabled. The HTTP helper is public within the SDK; its production code has no core dependencies.
 
-The current extension model is **source contributions compiled with the app**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. These declarations are not yet wired to the runtime: the app still uses the compiled registration list. See [SDK status](sdk/README.md).
+The current extension model is **source contributions compiled with the app**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. Compiled definitions now enter an atomic plugin registry, with persisted enable/disable and scoped source publication through explicit Source APIs. The app still uses the compiled registration list; external loading and contributed UI are not implemented. See [SDK status](sdk/README.md).
 
 
 ## Data contracts
@@ -157,3 +157,37 @@ The board is 12 columns wide with at most 24 non-overlapping cards. `dashboard-l
 The `json` node extends layout v1 with an exact `json` configuration (`source: http`, URL, jq filter), requires manual refresh and preserves existing node formats. Older clients reject this new kind rather than rewriting it. `api-query.ts` captures configuration, executes a manual preview and seeds the added node with that result without issuing a duplicate request. Results are not persisted. The UI invalidates old replies when settings or pages change.
 
 `App.ReadJSON` delegates to the application-owned `JSONReader` port. `Service.ReadJSON` reuses admission, cancellation and shutdown tracking with a 25-second overall budget. The composition root supplies `internal/jsonsource.Reader`, which performs unauthenticated GET and embedded gojq evaluation. No provider connection or credential store is involved; no shell process is started. HTTP is bounded to 20 seconds/8 MiB, and jq receives a cooperative 2-second context with 200 outputs/1 MiB display bounds. This is an in-process interpreter, not a resource-isolated subprocess sandbox. JSON scalar values cross the frontend bridge as exact text, not JS numbers.
+
+## Plugin and source lifecycle (phase 2)
+
+`platform.Registry` protects definition, ownership and activation metadata with a
+read/write lock. Compiled definitions are wrapped in manifests using the existing
+provider kind as plugin ID. Registering a multi-provider plugin validates all
+entries before publishing any. Metadata is deeply copied; factories run outside
+the registry lock. Known legacy feature labels (`history`, `sync`, `health`,
+`instant`, `range`, `rules`) remain available to the UI but are not source
+interfaces.
+
+Application coordinates activation through `SetPluginEnabled`. It saves the
+`plugins.disabled` preference before stopping affected runners; a failed save
+leaves working instances intact. Disabling retains connection settings,
+credentials, dashboard preferences and archives, cancels queued/active operations
+and leaves an unavailable snapshot. Startup restores disabled state before
+starting collection. Registration removal/package replacement remains restart
+work for the external loader phase.
+
+Each connection runner can lazily own a `platform.Sources` scope. The provider
+receives only the SDK registrar. Register/update validates exact source
+capabilities and stable target identity; updates cancel the prior generation
+synchronously. Leases retain implementations until their last call ends. Sharing
+one pointer across sources closes it only after its final registration and lease.
+Rejected registrations remain caller-owned. Retired implementations leave the
+resource map so repeated updates do not retain closed clients.
+
+`Sources` and `QuerySource` are explicit Wails APIs; metric queries use existing
+connection/global admission. Publication failure rolls back all accepted sources
+and can be retried. These APIs are the first consumers of the new source registry.
+The existing collector and legacy query methods remain on their compatibility
+path until provider migration (starting with Jenkins); source-only updates do not
+yet reconfigure that legacy path. Plugin disable/connection replacement stops both
+paths. The management screen and declarative plugin screens are later phases.

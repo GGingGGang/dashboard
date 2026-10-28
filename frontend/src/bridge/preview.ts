@@ -10,6 +10,7 @@ import type { Bridge } from "./types";
 
 // Browser preview is isolated from native settings, credentials, and archive.
 export function previewBridge(empty = false): Bridge {
+  const disabled = new Set<string>();
   const now = Date.now();
   const presets: Rule[] = [
     {
@@ -147,7 +148,7 @@ export function previewBridge(empty = false): Bridge {
           connectionId: c.id,
           attempted: new Date().toISOString(),
           lastSuccess: new Date().toISOString(),
-          error: "",
+          error: disabled.has(c.kind) ? "Plugin is disabled or unavailable" : "",
           storageError: "",
           imported: 24,
           backfillPending: false,
@@ -208,6 +209,7 @@ export function previewBridge(empty = false): Bridge {
       };
     },
     async SaveConnection({ connection }) {
+      if (disabled.has(connection.kind)) throw new Error("Plugin is disabled");
       const c = structuredClone(connection);
       c.id ||= `preview-${Date.now()}`;
       c.revision = crypto.randomUUID();
@@ -218,12 +220,14 @@ export function previewBridge(empty = false): Bridge {
       connections = connections.filter((c) => c.id !== id);
     },
     async TestConnection({ connection }) {
+      if (disabled.has(connection.kind)) throw new Error("Plugin is disabled");
       if (!connection.url.startsWith("http"))
         throw new Error("Use an HTTP(S) URL");
       if (["loki", "tempo"].includes(connection.kind)) return { targets: [], discovery: "unsupported", warning: "" };
       return { targets: connection.kind === "prometheus" ? [] : structuredClone(targets), discovery: "complete", warning: "" };
     },
     async Query(_id, q) {
+      if (disabled.has(connections.find(c => c.id === _id)?.kind || "")) throw new Error("Plugin is disabled");
       if (q.expression.includes("invalid"))
         throw new Error("Query or request rejected by upstream");
       return result(q.expression === "up" ? 1 : 42, q.start > 0);
@@ -232,12 +236,15 @@ export function previewBridge(empty = false): Bridge {
       throw new Error("실제 HTTP API 조회는 Windows 앱에서 실행하세요. 브라우저 미리보기에서는 외부 API를 호출하지 않습니다.");
     },
     async SearchLogs(id, q) {
+      if (disabled.has(connections.find(c => c.id === id)?.kind || "")) throw new Error("Plugin is disabled");
       return { observation: { ...observed(id), windowStart: q.start, windowEnd: q.end }, entries: [{ timestampNs: String(BigInt(q.end - 1) * 1000000000n + 123456789n), line: "GET /payments 200", labels: { service_name: "payments" }, fields: { trace_id: traceID } }] };
     },
     async SearchTraces(id, q) {
+      if (disabled.has(connections.find(c => c.id === id)?.kind || "")) throw new Error("Plugin is disabled");
       return { observation: { ...observed(id), windowStart: q.start, windowEnd: q.end }, traces: [{ traceId: traceID, rootService: "payments", rootName: "GET /payments", startNs: String(BigInt(q.end - 1) * 1000000000n), durationMs: 12 }] };
     },
     async Trace(id, traceId) {
+      if (disabled.has(connections.find(c => c.id === id)?.kind || "")) throw new Error("Plugin is disabled");
       return { observation: observed(id), traceId, spans: [{ traceId, spanId: "0102030405060708", parentSpanId: "", name: "GET /payments", service: "payments", startNs: String(BigInt(Date.now()) * 1000000n), durationNs: "12000000", attributes: [], resource: [], details: { status: { code: 1 } }, scope: {} }] };
     },
     async Presets(kind) {
@@ -274,5 +281,32 @@ export function previewBridge(empty = false): Bridge {
       return "";
     },
     async Refresh() {},
+    async Plugins() {
+      const state = await this.GetState();
+      return state.providers.map(p => ({
+        manifest: { id: p.kind, version: "0.1.0", contractVersion: 1,
+          providers: [{ id: p.kind, name: p.name, executable: "", configSchema: null }],
+          cards: null, dashboards: null, queries: null },
+        enabled: !disabled.has(p.kind),
+      }));
+    },
+    async SetPluginEnabled(id, enabled) {
+      if (!(await this.Plugins()).some(p => p.manifest.id === id)) throw new Error("Plugin not found");
+      if (enabled) disabled.delete(id); else disabled.add(id);
+      for (const c of connections) if (c.kind === id) c.revision = crypto.randomUUID();
+      preferences.set("plugins.disabled", JSON.stringify([...disabled].sort()));
+    },
+    async Sources(id) {
+      const c = connections.find(c => c.id === id);
+      if (!c || disabled.has(c.kind)) throw new Error("Connection or plugin unavailable");
+      const p = (await this.GetState()).providers.find(p => p.kind === c.kind);
+      const capabilities = (p?.capabilities || []).filter(c => ["builds", "queue", "deployments", "metrics", "logs", "traces"].includes(c));
+      return [{ id: "default", name: c.name, capabilities, revision: 1 }];
+    },
+    async QuerySource(id, sourceId, q) {
+      const source = (await this.Sources(id)).find(s => s.id === sourceId);
+      if (!source?.capabilities.includes("metrics")) throw new Error("Source does not support metrics");
+      return this.Query(id, q);
+    },
   };
 }

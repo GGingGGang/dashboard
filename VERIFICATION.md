@@ -1,5 +1,33 @@
 # Verification record
 
+## Plugin activation and scoped source lifecycle — 2026-10-28
+
+- Added atomic plugin registration, definition ownership, copied metadata and
+  synchronized activation state. Existing compiled providers enter the same
+  registry using their current kind as plugin ID. The application persists
+  `plugins.disabled` before stopping runners and preserves connections, credentials,
+  preferences and archives. Failed setting writes leave active runners intact.
+- Implemented the SDK SourceRegistrar in a per-connection core scope. Tests cover
+  invalid updates preserving live sources, synchronous generation cancellation,
+  shared-pointer lifetime, source ownership, target-ID reuse rejection, delayed
+  result suppression, publication rollback/retry and access revocation on disable.
+  Known legacy descriptive tags remain distinct from actual source capabilities.
+- Wails, TypeScript and the preview fixture expose Plugins, SetPluginEnabled,
+  Sources and QuerySource. Source publication is lazy; QuerySource currently
+  supports metrics. Existing collector and legacy query calls remain on their
+  compatibility path until individual provider migration. No plugin management
+  screen, external executable loader or contributed UI renderer is included yet.
+- `bash scripts/test-go.sh` passed: SDK tests/vet, all application Go tests/vet,
+  import boundaries and independent builds of all five provider adapters.
+- `npm run build` passed (existing bundle-size warning). The new lifecycle test
+  passed at both viewport sizes. Full Playwright run: 66 passed, 2 failed before
+  functional assertions because Edge closed during newPage/goto. Both failed
+  cases passed in a fresh `npm test -- --last-failed` run; no production fix or
+  retry configuration was used to mask the browser failures.
+- Race tests were attempted but could not compile: the installed GCC reports
+  `64-bit mode not compiled in`. Native WebView2 and live infrastructure were not
+  exercised, and the release executable was not rebuilt.
+
 ## Public extension contracts — 2026-10-28
 
 - Extracted existing DTOs, capability interfaces, validation and ownership

@@ -13,12 +13,14 @@ import (
 )
 
 type runner struct {
-	ctx      context.Context
-	revision string
-	cancel   context.CancelFunc
-	refresh  chan struct{}
-	done     chan struct{}
-	gate     chan struct{}
+	sourcesMu sync.Mutex
+	sources   *platform.Sources
+	ctx       context.Context
+	revision  string
+	cancel    context.CancelFunc
+	refresh   chan struct{}
+	done      chan struct{}
+	gate      chan struct{}
 }
 type Service struct {
 	ctx         context.Context
@@ -79,11 +81,19 @@ func (a *Service) Start() error {
 	if err := a.ready(); err != nil {
 		return err
 	}
+	if err := a.restorePlugins(); err != nil {
+		return err
+	}
 	connections, err := a.store.Connections()
 	if err != nil {
 		return errors.New("Cannot read connection settings")
 	}
 	for _, c := range connections {
+		if !a.registry.Enabled(c.Connection.Kind) {
+			a.stop(c.Connection.ID)
+			a.start(c)
+			continue
+		}
 		if a.runners[c.Connection.ID] == nil {
 			a.start(c)
 		}
@@ -147,6 +157,12 @@ func (a *Service) provider(c platform.SavedConnection) (platform.Provider, error
 }
 
 func (a *Service) start(c platform.SavedConnection) {
+	if !a.registry.Enabled(c.Connection.Kind) {
+		a.mu.Lock()
+		a.snapshots[c.Connection.ID] = platform.Snapshot{ConnectionID: c.Connection.ID, Error: "Plugin is disabled or unavailable"}
+		a.mu.Unlock()
+		return
+	}
 	ctx, cancel := context.WithCancel(a.ctx)
 	r := &runner{ctx: ctx, revision: randomID(), cancel: cancel, refresh: make(chan struct{}, 1), done: make(chan struct{}), gate: make(chan struct{}, 1)}
 	a.mu.Lock()
@@ -219,6 +235,11 @@ func (a *Service) stop(id string) {
 	if r != nil {
 		r.cancel()
 		<-r.done
+		r.sourcesMu.Lock()
+		if r.sources != nil {
+			r.sources.Close()
+		}
+		r.sourcesMu.Unlock()
 	}
 }
 func (a *Service) Refresh() {
@@ -448,12 +469,16 @@ func (a *Service) begin(id string, timeout time.Duration) (context.Context, func
 			a.editMu.Unlock()
 			return nil, nil, c, err
 		}
+		if !a.registry.Enabled(c.Connection.Kind) {
+			a.editMu.Unlock()
+			return nil, nil, c, errors.New("Plugin is disabled or unavailable")
+		}
 		r := a.runners[id]
 		if r == nil {
 			a.start(c)
 			r = a.runners[id]
 		}
-		parent = context.WithValue(r.ctx, revisionKey{}, r.revision)
+		parent = context.WithValue(context.WithValue(r.ctx, revisionKey{}, r.revision), runnerKey{}, r)
 		connectionGate = r.gate
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)

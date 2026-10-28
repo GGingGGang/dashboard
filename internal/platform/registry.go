@@ -3,19 +3,39 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
+	"sync"
+
+	sdk "github.com/GGingGGang/dashboard/sdk"
 )
 
-type Registry struct{ definitions map[string]Definition }
+type Registry struct {
+	mu          sync.RWMutex
+	definitions map[string]Definition
+	owners      map[string]string
+	plugins     map[string]PluginState
+}
 
 func NewRegistry(definitions ...Definition) (*Registry, error) {
-	r := &Registry{definitions: map[string]Definition{}}
+	r := &Registry{definitions: map[string]Definition{}, owners: map[string]string{}, plugins: map[string]PluginState{}}
+	for _, d := range definitions {
+		m := sdk.Manifest{ID: d.Info.Kind, Version: "0.1.0", ContractVersion: sdk.ContractVersion, Providers: []sdk.ProviderContribution{{ID: d.Info.Kind, Name: d.Info.Name}}}
+		if err := r.RegisterPlugin(m, d); err != nil {
+			return nil, err
+		}
+	}
+	return r, nil
+}
+
+func normalizeDefinitions(definitions []Definition) (map[string]Definition, error) {
+	normalized := map[string]Definition{}
 	for _, d := range definitions {
 		if d.Info.Kind == "" || d.Create == nil {
 			return nil, errors.New("Provider requires a kind and constructor")
 		}
-		if _, exists := r.definitions[d.Info.Kind]; exists {
+		if _, exists := normalized[d.Info.Kind]; exists {
 			return nil, fmt.Errorf("Duplicate provider: %s", d.Info.Kind)
 		}
 		if d.Info.PollSeconds <= 0 {
@@ -45,12 +65,14 @@ func NewRegistry(definitions ...Definition) (*Registry, error) {
 			}
 		}
 		d.Info = d.Info.Clone()
-		r.definitions[d.Info.Kind] = d
+		normalized[d.Info.Kind] = d
 	}
-	return r, nil
+	return normalized, nil
 }
 
 func (r *Registry) Infos() []ProviderInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]ProviderInfo, 0, len(r.definitions))
 	for _, d := range r.definitions {
 		out = append(out, d.Info.Clone())
@@ -60,40 +82,100 @@ func (r *Registry) Infos() []ProviderInfo {
 }
 
 func (r *Registry) Info(kind string) (ProviderInfo, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	d, ok := r.definitions[kind]
 	return d.Info.Clone(), ok
 }
 
+func (r *Registry) definition(kind string) (Definition, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	d, ok := r.definitions[kind]
+	if !ok {
+		return d, errors.New("Unknown provider")
+	}
+	if !r.plugins[r.owners[kind]].Enabled {
+		return d, errors.New("Plugin is disabled")
+	}
+	d.Info = d.Info.Clone()
+	return d, nil
+}
+
 func (r *Registry) Validate(c Connection) error {
+	d, err := r.definition(c.Kind)
+	if err != nil {
+		return err
+	}
+	return validateDefinition(d, c)
+}
+
+func validateDefinition(d Definition, c Connection) error {
 	if err := ValidateConnection(c); err != nil {
 		return err
 	}
-	info, ok := r.Info(c.Kind)
-	if !ok {
-		return errors.New("Unknown provider")
-	}
-	if !slices.Contains(info.AuthMethods, c.Auth) {
+	if !slices.Contains(d.Info.AuthMethods, c.Auth) {
 		return errors.New("이 플랫폼에서 지원하지 않는 인증 방식입니다. 연결 설정에서 인증 방식을 다시 선택하세요")
 	}
-	if validate := r.definitions[c.Kind].Validate; validate != nil {
-		return validate(c)
+	if validate := d.Validate; validate != nil {
+		return validate(c.Clone())
 	}
 	return nil
 }
 
 func (r *Registry) New(c Connection, secret string) (Provider, error) {
-	if err := r.Validate(c); err != nil {
+	d, err := r.definition(c.Kind)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateDefinition(d, c); err != nil {
 		return nil, err
 	}
 	if c.Auth != "none" && secret == "" {
 		return nil, errors.New("Authentication secret is missing")
 	}
-	p, err := r.definitions[c.Kind].Create(c.Clone(), secret)
+	p, err := d.Create(c.Clone(), secret)
 	if err != nil {
 		return nil, err
 	}
+	if err := ValidateCapabilities(p, SourceCapabilities(d.Info.Capabilities)); err != nil {
+		if !nilProvider(p) {
+			_ = CloseProvider(p)
+		}
+		return nil, err
+	}
+	return p, nil
+}
+
+// Historical ProviderInfo also contains feature labels that are not Go source
+// interfaces. Preserve those for existing UI consumers, excluding only the
+// documented compatibility labels from source registration and validation.
+func SourceCapabilities(capabilities []string) []string {
+	out := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		if !slices.Contains([]string{"history", "sync", "health", "instant", "range", "rules"}, capability) {
+			out = append(out, capability)
+		}
+	}
+	return out
+}
+
+func nilProvider(p Provider) bool {
 	if p == nil {
-		return nil, errors.New("Provider constructor returned no provider")
+		return true
+	}
+	v := reflect.ValueOf(p)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Interface, reflect.Chan:
+		return v.IsNil()
+	}
+	return false
+}
+
+// ValidateCapabilities compares exact implemented contracts, not product names.
+func ValidateCapabilities(p Provider, declared []string) error {
+	if nilProvider(p) {
+		return errors.New("Provider constructor returned no provider")
 	}
 	actual := []string{}
 	if _, ok := p.(BuildSource); ok {
@@ -115,15 +197,20 @@ func (r *Registry) New(c Connection, secret string) (Provider, error) {
 		actual = append(actual, "traces")
 	}
 	if len(actual) == 0 {
-		_ = CloseProvider(p)
-		return nil, errors.New("Provider implements no collection capability")
+		return errors.New("Provider implements no collection capability")
 	}
-	info, _ := r.Info(c.Kind)
-	for _, capability := range []string{"builds", "queue", "deployments", "metrics", "logs", "traces"} {
-		if slices.Contains(info.Capabilities, capability) != slices.Contains(actual, capability) {
-			_ = CloseProvider(p)
-			return nil, fmt.Errorf("Provider capability mismatch: %s", capability)
+	for _, capability := range declared {
+		if !slices.Contains(actual, capability) {
+			return fmt.Errorf("Provider capability mismatch: %s", capability)
 		}
 	}
-	return p, nil
+	for _, capability := range actual {
+		if !slices.Contains(declared, capability) {
+			return fmt.Errorf("Provider capability mismatch: %s", capability)
+		}
+	}
+	if len(declared) != len(actual) {
+		return errors.New("Duplicate provider capability")
+	}
+	return nil
 }
