@@ -356,7 +356,7 @@ export class DashboardData {
       return undefined;
     };
     const graph = this.graph(shown, unit, view);
-    const colors = ["#73e0db", "#9ebcff", "#f8cb7c", "#ffabb8", "#afc996", "#d8a4ff"];
+    const colors = ["#5366d9", "#16856a", "#ad7318", "#c84956", "#6d8037", "#8b5ac1"];
     return `${warning}${graph}<ul class="db-series">${shown.map((item, index) => { const point = latest(item); return `<li><span class="db-series-swatch" style="background:${colors[index]}"></span><code>${esc(labels(item.labels))}</code> · ${esc(point ? date(point.time * 1000) : "값 없음")}</li>`; }).join("")}</ul>${result.warnings?.length ? this.notice(result.warnings.join(" · "), "warning") : ""}${result.truncated ? this.notice("응답이 잘렸습니다.", "warning") : ""}`;
   }
 
@@ -375,8 +375,8 @@ export class DashboardData {
     const viewLow = low - valuePadding;
     const x = (time: number) => ((time - viewStart) / (viewEnd - viewStart)) * 200;
     const y = (value: number) => ((viewHigh - value) / (viewHigh - viewLow)) * 70;
-    const colors = ["#73e0db", "#9ebcff", "#f8cb7c", "#ffabb8", "#afc996", "#d8a4ff"];
-    return `<div class="db-chart-scale"><span>값 범위 ${esc(number(viewLow))}–${esc(number(viewHigh))}${esc(unit)}</span><div class="db-chart-controls" role="group" aria-label="시간축 확대·축소"><button type="button" data-graph-action="out" aria-label="시간축 축소" ${view.scale === 1 ? "disabled" : ""}>−</button><button type="button" data-graph-action="reset" aria-label="전체 시간 범위" title="전체 시간 범위로 돌아가기">${Math.round(view.scale * 100)}%</button><button type="button" data-graph-action="in" aria-label="시간축 확대" ${view.scale === 8 ? "disabled" : ""}>＋</button></div></div><div class="db-chart-frame"><div class="db-y-axis">${[viewHigh, (viewHigh + viewLow) / 2, viewLow].map((value, index) => `<span style="top:${index * 50}%">${esc(number(value) + unit)}</span>`).join("")}</div><div class="db-plot"><svg class="db-chart" data-start="${viewStart}" data-end="${viewEnd}" viewBox="0 0 200 70" preserveAspectRatio="none" role="img" aria-label="${esc(`지표 추이 ${date(viewStart * 1000)}부터 ${date(viewEnd * 1000)}까지`)}"><title>Ctrl + 휠로 마우스 위치의 시간축만 확대·축소합니다.</title>${[0.5, 35, 69.5].map(y => `<line x1="0" x2="200" y1="${y}" y2="${y}" stroke="#40536b" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"/>`).join("")}${series.map((item, index) => {
+    const colors = ["#5366d9", "#16856a", "#ad7318", "#c84956", "#6d8037", "#8b5ac1"];
+    return `<div class="db-chart-scale"><span>값 범위 ${esc(number(viewLow))}–${esc(number(viewHigh))}${esc(unit)}</span><div class="db-chart-controls" role="group" aria-label="시간축 확대·축소"><button type="button" data-graph-action="out" aria-label="시간축 축소" ${view.scale === 1 ? "disabled" : ""}>−</button><button type="button" data-graph-action="reset" aria-label="전체 시간 범위" title="전체 시간 범위로 돌아가기">${Math.round(view.scale * 100)}%</button><button type="button" data-graph-action="in" aria-label="시간축 확대" ${view.scale === 8 ? "disabled" : ""}>＋</button></div></div><div class="db-chart-frame"><div class="db-y-axis">${[viewHigh, (viewHigh + viewLow) / 2, viewLow].map((value, index) => `<span style="top:${index * 50}%">${esc(number(value) + unit)}</span>`).join("")}</div><div class="db-plot"><svg class="db-chart" data-start="${viewStart}" data-end="${viewEnd}" viewBox="0 0 200 70" preserveAspectRatio="none" role="img" aria-label="${esc(`지표 추이 ${date(viewStart * 1000)}부터 ${date(viewEnd * 1000)}까지`)}"><title>Ctrl + 휠로 마우스 위치의 시간축만 확대·축소합니다.</title>${[0.5, 35, 69.5].map(y => `<line x1="0" x2="200" y1="${y}" y2="${y}" stroke="#dce2eb" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"/>`).join("")}${series.map((item, index) => {
       let path = "";
       let dots = "";
       let open = false;

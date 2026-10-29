@@ -203,7 +203,7 @@ test("failed metric rules never produce a healthy zero summary", async ({
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "운영 현황", exact: true }).click();
+  await page.getByRole("button", { name: "수집 상세", exact: true }).click();
   const summary = page.locator(".stat").filter({ hasText: "지표 이상 징후" });
   await expect(summary.locator(".value")).toHaveText("—");
   await expect(summary).toContainText("판정 가능 0/1개 규칙");
@@ -216,9 +216,9 @@ test("overview preserves separate sync and health and fits both sizes", async ({
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
-  await page.getByRole("button", { name: "운영 현황", exact: true }).click();
+  await page.getByRole("button", { name: "수집 상세", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "운영 현황", exact: true }),
+    page.getByRole("heading", { name: "수집 상세", exact: true }),
   ).toBeVisible();
   await expect(
     page.locator(".services").getByText("OutOfSync", { exact: true }),

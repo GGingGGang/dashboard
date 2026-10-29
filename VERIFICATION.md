@@ -1,3 +1,24 @@
+## Atlas frontend promotion — 2026-10-29
+
+The user selected independent variant 01. Its light shell and home now wrap the
+production lifecycle and components; the incomplete prototype connection editor
+was not substituted for existing target, authentication, CA and rule controls.
+
+- Existing browser regression suite: 78/78 passed across wide/compact viewports.
+- Four additional Atlas checks passed: polling focus, navigation and saved view
+  contract, escaped long names, delayed/error/on-demand states, 375px overflow.
+  The preview stores preferences in memory; the initial reload-persistence
+  assertion was corrected to inspect its saved-preference contract.
+- `npm run build --prefix frontend` passed. Existing large-bundle warning remains.
+- Headless Edge screenshots inspected for the home, personal dashboard, connection
+  editor and narrow home; captures are in ignored `build/bin/atlas-preview/`.
+- Windows/amd64 production build passed: `build/bin/idp-dashboard-atlas.exe`.
+  Browser preview is available on port 5316 while the local dev process runs.
+- No backend contracts changed. Actual Wails interactions, native file pickers
+  and live authenticated services were not manually exercised in this change.
+- The five independent comparison folders remain local and are not part of the
+  production commit. Existing persisted routes/layouts remain compatible.
+
 ## Full provider migration, phase 6 — 2026-10-29
 
 - `bash scripts/test-go.sh`: SDK/root tests and vet passed. All six adapters

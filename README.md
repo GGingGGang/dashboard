@@ -4,6 +4,19 @@ A Windows desktop dashboard that a developer can keep open while working. Arrang
 
 This is an early implementation of an operations view for a developer platform, not a complete internal developer platform. The interface is Korean; contributor documentation is English.
 
+## Atlas workspace
+
+The selected Atlas design is now the main frontend. New workspaces open on
+**운영 현황**, with recent builds and data connections. **내 대시보드** keeps the
+existing editable layout; **수집 상세** retains the detailed collection view.
+The sidebar groups history, metric/log/trace explorers, API queries, plugin
+workspaces, and connection settings. Existing saved views, cards, target selection,
+CA settings and authentication flows are preserved. The interface uses a light
+theme throughout, including charts and dialogs.
+
+The five local comparison variants remain under `frontend-variants/`; they are
+not production entry points. The selected source is `frontend/`.
+
 ## Run
 
 Requirements: Windows x64 and Microsoft Edge WebView2 Runtime. The executable embeds the frontend.

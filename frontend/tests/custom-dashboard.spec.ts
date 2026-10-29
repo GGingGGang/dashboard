@@ -53,6 +53,7 @@ test.beforeEach(async ({ page }) => {
     } } };
   }, layoutKey);
   await page.goto("/");
+  await page.locator('nav [data-page="dashboard"]').click();
   await expect(page.locator(".dashboard-page")).toBeVisible();
 });
 

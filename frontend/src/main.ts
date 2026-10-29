@@ -16,7 +16,10 @@ import { mountExplorer } from "./components/explorer";
 import { DashboardController } from "./components/dashboard";
 import { mountAPIQuery } from "./components/api-query";
 import type { DashboardWidget } from "./components/dashboard-layout";
+import { renderHome } from "./components/home";
+import { shell, navButton } from "./components/shell";
 import "./style.css";
+import "./atlas.css";
 
 let state: State = {
   connections: [],
@@ -25,7 +28,7 @@ let state: State = {
   error: "",
   demo: browserPreview,
 };
-let page = "dashboard",
+let page = "home",
   scope = "*",
   period = 3600,
   historyOffset = 0,
@@ -108,22 +111,8 @@ const dashboard = new DashboardController(() => state, toast, widget => {
   extensionEditing = widget;
   void changePage(widget?.extension ? `plugin:${widget.extension.pluginId}` : "plugins");
 });
-document.querySelector("#app")!.innerHTML =
-  `<div class="app-shell"><header class="top"><div class="brand"><div class="logo" aria-hidden="true">≋</div><div><div class="eyebrow">DEVELOPER OPERATIONS</div><h1>IDP Dashboard</h1></div></div><div class="actions"><span class="muted" id="connection-count"></span><button id="refresh" class="ghost">↻ 새로고침</button></div></header><nav class="nav" aria-label="주 메뉴">${[
-    ["dashboard", "대시보드"],
-    ["overview", "운영 현황"],
-    ["history", "빌드 이력"],
-    ["metrics", "지표 탐색"],
-    ["logs", "로그 탐색"],
-    ["traces", "트레이스 탐색"],
-    ["api", "API 쿼리"],
-    ["connections", "연결 설정"],
-    ["plugins", "플러그인"],
-  ]
-    .map(([id, label]) => `<button data-page="${id}">${label}</button>`)
-    .join(
-      "",
-    )}</nav><div id="banner"></div><main id="page"></main><footer class="footer"><span>LOCAL FIRST · READ ONLY</span><span>앱 실행 중 수집 · 빌드 요약은 이 PC에 보존</span></footer></div><div id="toast" class="toast" role="status" aria-live="polite"></div><dialog id="connection-dialog" class="dialog" aria-labelledby="dialog-title"><form id="connection-form"><header class="dialog-header"><h2 id="dialog-title">연결 추가</h2><button type="button" data-close aria-label="닫기">×</button></header><div class="dialog-body" id="connection-fields"></div><footer class="dialog-footer"><button type="button" id="test-connection">연결 검사 · 대상 찾기</button><button type="submit" class="primary">저장</button></footer></form></dialog>`;
+document.querySelector("#app")!.innerHTML = shell() +
+  `<div id="toast" class="toast" role="status" aria-live="polite"></div><dialog id="connection-dialog" class="dialog" aria-labelledby="dialog-title"><form id="connection-form"><header class="dialog-header"><h2 id="dialog-title">연결 추가</h2><button type="button" data-close aria-label="닫기">×</button></header><div class="dialog-body" id="connection-fields"></div><footer class="dialog-footer"><button type="button" id="test-connection">연결 검사 · 대상 찾기</button><button type="submit" class="primary">저장</button></footer></form></dialog>`;
 
 async function changePage(next: string) {
   if (next !== "api") apiEditing = undefined;
@@ -131,6 +120,7 @@ async function changePage(next: string) {
   queryRequest++;
   dashboard.unmount();
   page = next;
+  document.querySelector("#page-title")!.textContent = pageTitle(next);
   dispose();
   const pageGeneration = ++generation;
   renderedStamp = "";
@@ -153,6 +143,7 @@ async function changePage(next: string) {
       async (binding, connection, title, existing) => { await dashboard.addExtension(binding, connection, title, existing); await changePage("dashboard"); toast("카드를 반영했습니다. 저장 · 배치 완료를 누르면 보존됩니다."); },
       async () => { state = await api.GetState(); updatePluginNav(); await changePage(page); }, pluginId, dashboardId, extensionEditing);
   }
+  if (page === "home") renderHome(document.querySelector<HTMLElement>("#page")!, state);
   if (page === "overview") renderOverview();
   if (page === "history") await renderHistory();
   if (page === "metrics") renderMetrics();
@@ -169,9 +160,12 @@ function renderExplorer() {
   const kind = page as "logs" | "traces";
   mountExplorer(document.querySelector<HTMLElement>("#page")!, kind, state, () => generation === gen && page === kind, connectionVersion);
 }
+function pageTitle(id: string) {
+  const titles: Record<string, string> = { home: "운영 현황", dashboard: "내 대시보드", overview: "수집 상세", history: "빌드 이력", metrics: "지표 탐색", logs: "로그 탐색", traces: "트레이스 탐색", api: "API 쿼리", connections: "연결 설정", plugins: "플러그인 관리" };
+  return titles[id] || plugins.find(p => p.manifest.id === id.split(":")[1])?.manifest.dashboards?.find(d => d.id === id.split(":")[2])?.title || id.split(":")[1] || "워크스페이스";
+}
 function updatePluginNav() {
-  document.querySelectorAll("nav [data-plugin-nav]").forEach(el => el.remove());
-  document.querySelector("nav")!.insertAdjacentHTML("beforeend", plugins.filter(p => p.enabled).flatMap(p => (p.manifest.dashboards || []).map(d => `<button data-plugin-nav data-page="plugin:${esc(p.manifest.id)}:${esc(d.id)}">${esc(d.title)}</button>`)).join(""));
+  document.querySelector("#plugin-nav")!.innerHTML = plugins.filter(p => p.enabled).flatMap(p => (p.manifest.dashboards || []).map(d => navButton(`plugin:${p.manifest.id}:${d.id}`, "◇", d.title, page))).join("") || '<span class="side-empty">활성 대시보드 없음</span>';
 }
 function providerSchema(kind: string) { return plugins.flatMap(p => p.manifest.providers || []).find(p => p.id === kind)?.configSchema; }
 function updateProviderForm() {
@@ -212,12 +206,13 @@ async function poll() {
       state.snapshots.map((s) => fresh(s)),
     ]);
     if (
-      page === "overview" &&
+      (page === "overview" || page === "home") &&
       stamp !== renderedStamp &&
       !(document.querySelector("#connection-dialog") as HTMLDialogElement).open
     ) {
       renderedStamp = stamp;
-      renderOverview();
+      if (page === "home") renderHome(document.querySelector<HTMLElement>("#page")!, state);
+      else renderOverview();
     }
   } catch (e) {
     toast(`앱 상태 조회 실패: ${e}`);
@@ -313,7 +308,7 @@ function renderOverview() {
     color = "",
   ) =>
     `<div class="stat"><div class="label">${label}</div><div class="value ${color}">${value}</div><div class="hint">${hint}</div></div>`;
-  root.innerHTML = `<div class="page-head"><div><h2>운영 현황</h2><p>빌드, 배포, 관측 상태를 각 원본의 기준으로 확인합니다.</p></div><div class="toolbar"><select id="scope" aria-label="서비스 범위"><option value="*">모든 서비스</option>${scopes.map((s) => `<option ${s === scope ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select id="period" aria-label="조회 기간">${periods()}</select></div></div><div class="stats">${stat("실패한 빌드", hasCI ? failed : "—", "작업별 최신 완료 빌드", failed ? "bad" : "")}${stat("대기 중인 작업", hasQueue ? queues.length : "—", "선택한 작업의 현재 queue")}${stat("배포 확인 필요", hasCD ? badDeploy : "—", "Sync · Health 별도 확인", badDeploy ? "warn" : "")}${stat("지표 이상 징후", validRules.length ? validRules.reduce((n, r) => n + r.breaches, 0) : "—", `판정 가능 ${validRules.length}/${rules.length}개 규칙 · 초과 시계열`, "warn")}</div>${partial.length ? `<div class="notice">${partial.map((c) => `${esc(c.name)}: ${esc(snap(c.id)?.error || "수집 대기 또는 조회 지연")}`).join(" · ")}<br><small>표시된 이전 값의 시각을 확인하세요. 조회 실패는 서비스 장애나 정상 상태를 뜻하지 않습니다.</small></div>` : ""}${state.snapshots
+  root.innerHTML = `<div class="page-head"><div><h2>수집 상세</h2><p>빌드, 배포, 관측 상태를 각 원본의 기준으로 확인합니다.</p></div><div class="toolbar"><select id="scope" aria-label="서비스 범위"><option value="*">모든 서비스</option>${scopes.map((s) => `<option ${s === scope ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select id="period" aria-label="조회 기간">${periods()}</select></div></div><div class="stats">${stat("실패한 빌드", hasCI ? failed : "—", "작업별 최신 완료 빌드", failed ? "bad" : "")}${stat("대기 중인 작업", hasQueue ? queues.length : "—", "선택한 작업의 현재 queue")}${stat("배포 확인 필요", hasCD ? badDeploy : "—", "Sync · Health 별도 확인", badDeploy ? "warn" : "")}${stat("지표 이상 징후", validRules.length ? validRules.reduce((n, r) => n + r.breaches, 0) : "—", `판정 가능 ${validRules.length}/${rules.length}개 규칙 · 초과 시계열`, "warn")}</div>${partial.length ? `<div class="notice">${partial.map((c) => `${esc(c.name)}: ${esc(snap(c.id)?.error || "수집 대기 또는 조회 지연")}`).join(" · ")}<br><small>표시된 이전 값의 시각을 확인하세요. 조회 실패는 서비스 장애나 정상 상태를 뜻하지 않습니다.</small></div>` : ""}${state.snapshots
     .filter((s) => s.storageError)
     .map(
       (s) =>
@@ -914,7 +909,7 @@ async function init() {
     const saved = await api.GetPreference("view");
     if (saved) {
       const v = JSON.parse(saved);
-      if (["dashboard", "overview", "history", "metrics", "logs", "traces", "api", "connections", "plugins"].includes(v.page) || (typeof v.page === "string" && /^plugin:[a-zA-Z0-9._-]+(?::[a-zA-Z0-9._-]+)?$/.test(v.page)))
+      if (["home", "dashboard", "overview", "history", "metrics", "logs", "traces", "api", "connections", "plugins"].includes(v.page) || (typeof v.page === "string" && /^plugin:[a-zA-Z0-9._-]+(?::[a-zA-Z0-9._-]+)?$/.test(v.page)))
         page = v.page;
       if (typeof v.scope === "string") scope = v.scope;
       if ([900, 3600, 21600, 86400].includes(v.period)) period = v.period;

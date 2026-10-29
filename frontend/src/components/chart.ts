@@ -30,7 +30,7 @@ export function chart(el: HTMLElement, result: QueryResult, big = false) {
   charts.push(c);
   c.setOption({
     animation: false,
-    color: ["#73e0db", "#9ebcff", "#f8cb7c", "#ffabb8", "#afc996"],
+    color: ["#5366d9", "#16856a", "#ad7318", "#c84956", "#8b5ac1"],
     grid: {
       left: big ? 55 : 40,
       right: 14,
@@ -39,18 +39,18 @@ export function chart(el: HTMLElement, result: QueryResult, big = false) {
     },
     tooltip: { trigger: "axis", renderMode: "richText", confine: true },
     legend: big
-      ? { type: "scroll", textStyle: { color: "#a2b2c9" }, top: 0 }
+      ? { type: "scroll", textStyle: { color: "#66758a" }, top: 0 }
       : undefined,
     xAxis: {
       type: "time",
-      axisLabel: { color: "#a2b2c9", fontSize: 10, hideOverlap: true },
-      axisLine: { lineStyle: { color: "#35445b" } },
+      axisLabel: { color: "#66758a", fontSize: 10, hideOverlap: true },
+      axisLine: { lineStyle: { color: "#cdd5e0" } },
       splitLine: { show: false },
     },
     yAxis: {
       type: "value",
-      axisLabel: { color: "#a2b2c9", fontSize: 10 },
-      splitLine: { lineStyle: { color: "#26364a" } },
+      axisLabel: { color: "#66758a", fontSize: 10 },
+      splitLine: { lineStyle: { color: "#e9edf2" } },
     },
     dataZoom: big
       ? [
@@ -59,8 +59,8 @@ export function chart(el: HTMLElement, result: QueryResult, big = false) {
             type: "slider",
             height: 16,
             bottom: 8,
-            borderColor: "#334154",
-            textStyle: { color: "#a2b2c9" },
+            borderColor: "#dce2eb",
+            textStyle: { color: "#66758a" },
           },
         ]
       : [],

@@ -30,6 +30,7 @@ test.beforeEach(async ({page}) => {
 
 test("manifest dashboard renders generic data and preserves v1 layout through add and disable", async ({page}) => {
   await page.goto("/");
+  await page.locator('nav [data-page="dashboard"]').click();
   await expect(page.getByText("Keep layout",{exact:true})).toBeVisible();
   await page.locator('nav [data-page="plugin:inventory:overview"]').click();
   const table = page.locator("#plugin-contributions > section").filter({has:page.getByRole("heading",{name:"Inventory table"})});
@@ -61,6 +62,7 @@ test("manifest dashboard renders generic data and preserves v1 layout through ad
 
 test("query and provider forms are generated from the declared schema", async ({page}) => {
   await page.goto("/");
+  await page.locator('nav [data-page="dashboard"]').click();
   await page.locator('nav [data-page="plugin:inventory:overview"]').click();
   const query = page.locator("#plugin-contributions > section").filter({has:page.getByRole("heading",{name:"Inventory lookup"})});
   await query.getByLabel("Limit").fill("99");
@@ -77,6 +79,7 @@ test("query and provider forms are generated from the declared schema", async ({
 
 test("generic series keep gaps and required boolean accepts false", async ({page}) => {
   await page.goto("/");
+  await page.locator('nav [data-page="dashboard"]').click();
   const result = await page.evaluate(async () => {
     // @ts-expect-error Browser import resolved by Vite.
     const {renderData, schemaForm, readSchema} = await import("/src/components/extensions.ts");

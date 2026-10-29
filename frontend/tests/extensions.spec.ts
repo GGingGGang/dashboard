@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("plugin lifecycle preserves connections and gates registered sources", async ({ page }) => {
   await page.goto("/");
+  await page.locator('nav [data-page="dashboard"]').click();
   const result = await page.evaluate(async () => {
     // @ts-expect-error Vite resolves the browser-side module path.
     const { previewBridge } = await import("/src/bridge/preview.ts");
