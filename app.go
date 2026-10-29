@@ -15,7 +15,6 @@ import (
 	"idp-dashboard/internal/application"
 	"idp-dashboard/internal/demo"
 	"idp-dashboard/internal/extensions"
-	"idp-dashboard/internal/jsonsource"
 	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers"
 	"idp-dashboard/internal/storage"
@@ -78,7 +77,7 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	}
-	a.service = application.New(ctx, store, windowsCredentials{}, a.registry, a.demoMode, jsonsource.Reader{})
+	a.service = application.New(ctx, store, windowsCredentials{}, a.registry, a.demoMode)
 	if err := a.service.Start(); err != nil {
 		a.err = err.Error()
 	}

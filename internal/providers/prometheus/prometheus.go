@@ -141,7 +141,7 @@ func decodePoint(pair []json.RawMessage) (platform.Point, error) {
 // Definition registers this adapter and its supported capabilities.
 func Definition() platform.Definition {
 	return platform.Definition{
-		Info: platform.ProviderInfo{Kind: "prometheus", Name: "Prometheus", Category: "monitoring", Capabilities: []string{"metrics", "instant", "range", "rules"}, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, PollSeconds: 30, Query: &platform.QueryInfo{Language: "PromQL", DefaultExpression: "up", Presets: Presets()}},
+		Info: platform.ProviderInfo{CollectionSource: "default", Kind: "prometheus", Name: "Prometheus", Category: "monitoring", Capabilities: []string{"metrics", "instant", "range", "rules"}, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, PollSeconds: 30, Query: &platform.QueryInfo{Language: "PromQL", DefaultExpression: "up", Presets: Presets()}},
 		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
 			client, err := httpapi.New(c, secret)
 			if err != nil {
@@ -153,3 +153,16 @@ func Definition() platform.Definition {
 }
 
 func (p *Prometheus) Close() error { return p.api.Close() }
+
+func Manifest() platform.Manifest {
+	schema := json.RawMessage(`{"type": "object", "properties": {"expression": {"type": "string", "title": "Query", "default": "up", "maxLength": 16384}, "period": {"type": "integer", "title": "Period (seconds)", "default": 3600, "minimum": 1, "maximum": 86400}}, "required": ["expression"]}`)
+	return platform.Manifest{ID: "prometheus", Version: "0.1.0", ContractVersion: platform.ContractVersion,
+		Providers:  []platform.ProviderContribution{{ID: "prometheus", Name: "Prometheus"}},
+		Cards:      []platform.CardContribution{{ID: "metrics", Title: "Prometheus", Capability: "metrics", Renderer: "timeseries", ConfigSchema: schema}},
+		Dashboards: []platform.DashboardContribution{{ID: "overview", Title: "Prometheus", Cards: []string{"metrics"}}},
+		Queries:    []platform.QueryContribution{{ID: "metrics", Title: "Prometheus query", Capability: "metrics", Renderer: "timeseries", InputSchema: schema}},
+	}
+}
+func (p *Prometheus) PublishSources(ctx context.Context, host platform.SourceRegistrar) error {
+	return host.Update(ctx, platform.SourceDescriptor{ID: "default", Name: "Prometheus", Capabilities: []string{"metrics"}}, p)
+}

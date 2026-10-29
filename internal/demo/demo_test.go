@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/GGingGGang/dashboard/sdk"
 	"idp-dashboard/internal/collector"
 	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers"
@@ -46,6 +47,13 @@ func TestAllAdaptersThroughDemoAPIs(t *testing.T) {
 			detail, err := source.Trace(context.Background(), r.Traces[0].TraceID)
 			if err != nil || len(detail.Spans) != 1 {
 				t.Fatalf("demo span: %+v %v", detail, err)
+			}
+			continue
+		}
+		if source, ok := p.(sdk.DataSource); ok {
+			result, err := source.ReadData(context.Background(), map[string]any{"filter": ".", "mode": "table"})
+			if err != nil || len(result.Rows) != 1 {
+				t.Fatal("demo generic data", result, err)
 			}
 			continue
 		}

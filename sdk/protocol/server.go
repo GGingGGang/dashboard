@@ -25,7 +25,6 @@ type server struct {
 	handles      map[sdk.Provider]string
 	next         uint64
 	initializing bool
-	ready        bool
 }
 
 // Serve runs one configured provider per process. It returns when the host closes
@@ -88,7 +87,6 @@ func (s *server) initialize(ctx context.Context, raw json.RawMessage) (any, erro
 		s.mu.Lock()
 		s.resources["0"] = &resource{provider: p}
 		s.handles[p] = "0"
-		s.ready = true
 		s.mu.Unlock()
 		_, discover := sdk.Resolve(p, "discover").(sdk.TargetDiscoverer)
 		return Initialized{Version: Version, Capabilities: Capabilities(p), Discover: discover}, nil
@@ -191,6 +189,10 @@ func (s *server) handle(ctx context.Context, method string, raw json.RawMessage)
 	case "trace":
 		if v, ok := sdk.Resolve(p, "traces").(sdk.TraceSource); ok {
 			return v.Trace(ctx, r.Target)
+		}
+	case "json":
+		if v, ok := sdk.Resolve(p, "json").(sdk.JSONSource); ok {
+			return v.ReadJSON(ctx, r.JSON)
 		}
 	case "data":
 		if v, ok := sdk.Resolve(p, "data").(sdk.DataSource); ok {

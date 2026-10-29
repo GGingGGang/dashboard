@@ -65,10 +65,10 @@ After their final registration is removed, construct new instances rather than
 re-submitting an implementation whose ownership has ended. Source IDs cannot be
 reassigned to a different target within a scope.
 
-`ProviderInfo.CollectionSource` opts collection into a registered source.
-Jenkins publishes and collects `default`. Replacement cancels existing leases,
+`ProviderInfo.CollectionSource` selects the source for collection and legacy
+query APIs. All six built-ins publish `default`. Replacement cancels existing leases,
 wakes collection and resets transient cursors; persisted history and connection
-identity remain unchanged. Other collectors retain compatibility paths.
+identity remain unchanged. Definitions without CollectionSource retain compatibility paths.
 
 ## Declarative UI and new data domains (phase 4)
 
@@ -118,14 +118,18 @@ timestamps are epoch seconds. Invalid results fail instead of being silently
 truncated. Text is escaped; stale source/connection/plugin responses are rejected.
 In-process cancellation remains cooperative.
 
-Compiled definitions are still the package entry point. Trusted local ZIP install
-and subprocess execution are phase 5; remaining provider migrations are phase 6.
-This SDK is unreleased and may change during migration.
+Compiled definitions and external manifests are supported entry points. External
+executables use `protocol.Serve` for duplex JSON-RPC stdio and source callbacks;
+see [installation and example](../EXTERNAL_PLUGINS.md). `JSONSource.ReadJSON`
+preserves the existing HTTP JSON/jq request contract; JSON table/scalar cards use
+`DataSource`. All built-ins use the same source lifecycle.
+This SDK is unreleased and may change.
 
 ## Verification
 
 Run `go test ./...` and `go vet ./...` from this directory. The application also
-tests all five shipped providers by copying their production sources into an
-external consumer module with only this SDK dependency and network resolution
+tests all six shipped providers by copying their production sources into an
+external consumer module with this SDK and adapter libraries (gojq), no core
+imports, and network resolution
 disabled. Existing root integration tests continue to exercise the registry,
 collector, HTTP fixtures and database.

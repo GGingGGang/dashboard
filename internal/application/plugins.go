@@ -118,6 +118,7 @@ func (a *Service) SetPluginEnabled(id string, enabled bool) error {
 	if err := a.registry.SetPluginEnabled(id, enabled); err != nil {
 		return err
 	}
+	a.cancelPluginOperations(id)
 	for _, c := range connections {
 		if a.registry.Owner(c.Connection.Kind) != id {
 			continue

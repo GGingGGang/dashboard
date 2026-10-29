@@ -60,6 +60,11 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 		result = sdk.DataResult{}
 		err = errors.New("Plugin changed during the query; retry")
 	}()
+	ctx, releasePlugin, err := a.pluginOperation(ctx, request.PluginID, pluginRevision)
+	if err != nil {
+		return result, err
+	}
+	defer releasePlugin()
 	schema, err := sdk.ParseFormSchema(raw)
 	if err != nil {
 		return result, err
@@ -130,6 +135,7 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 	}
 	q := sdk.Query{Expression: text("expression"), Start: end - int64(period), End: end}
 	var records any
+	partial := false
 	switch capability {
 	case "data":
 		result, err = sdk.Resolve(p, "data").(sdk.DataSource).ReadData(callCtx, input)
@@ -171,16 +177,27 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 			var v sdk.LogResult
 			v, err = sdk.Resolve(p, "logs").(sdk.LogSource).SearchLogs(callCtx, search)
 			records = v.Entries
+			partial = len(v.Entries) > 0
 			result.Warnings = v.Observation.Diagnostics
+			if v.Observation.Completeness != "complete" {
+				result.Warnings = append(result.Warnings, "Log result may be incomplete: "+v.Observation.Completeness)
+			}
 		} else {
 			var v sdk.TraceSearchResult
 			v, err = sdk.Resolve(p, "traces").(sdk.TraceSource).SearchTraces(callCtx, search)
 			records = v.Traces
+			partial = len(v.Traces) > 0
 			result.Warnings = v.Observation.Diagnostics
+			if v.Observation.Completeness != "complete" {
+				result.Warnings = append(result.Warnings, "Trace result may be incomplete: "+v.Observation.Completeness)
+			}
 		}
 	}
 	if err != nil {
-		return sdk.DataResult{}, err
+		if !partial {
+			return sdk.DataResult{}, err
+		}
+		result.Warnings = append(result.Warnings, "Partial result: "+err.Error())
 	}
 	if records != nil {
 		warnings := result.Warnings

@@ -31,7 +31,7 @@ type Target struct {
 }
 
 type ProviderInfo struct {
-	// CollectionSource opts collection into a registered source instead of a private client.
+	// CollectionSource selects the registered source for collection and legacy query APIs.
 	CollectionSource string `json:"collectionSource,omitempty"`
 	// OnDemand prevents registration from starting background collection.
 	OnDemand     bool                 `json:"onDemand,omitempty"`

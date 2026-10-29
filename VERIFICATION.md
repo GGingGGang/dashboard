@@ -1,3 +1,22 @@
+## Full provider migration, phase 6 — 2026-10-29
+
+- `bash scripts/test-go.sh`: SDK/root tests and vet passed. All six adapters
+  compile in an independent consumer without core imports. Local HTTP integration
+  exercises publication, legacy queries and declarative contributions together.
+- HTTP JSON/jq now belongs to its provider. Tests retain exact large integers,
+  scalar/table validation, admission and cancellation on JSON plugin disable.
+- `npm run build` passed. Full browser run: 76 passed and 2 onboarding failures;
+  moving JSON after the existing preview default fixed both, and `--last-failed`
+  passed 2/2. No other frontend changes followed that correction.
+- Wails v2.11.0 Windows/amd64 production build succeeded:
+  `build/bin/idp-dashboard-plugins.exe`. The independent external example ZIP is
+  available at `build/bin/plugin-example/example-inventory.zip`.
+- Native installation dialogs and authenticated live services were not exercised
+  in this phase. Race checking remains unavailable with the installed 32-bit GCC.
+  External native code is trusted code, not OS-sandboxed code.
+
+Earlier sections below record the state at their respective verification dates.
+
 ## External package/runtime phase 5 — 2026-10-29
 
 Implemented trusted ZIP staging, atomic next-start index, startup registration,

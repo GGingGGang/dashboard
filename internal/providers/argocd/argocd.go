@@ -134,7 +134,7 @@ func (a *ArgoCD) Deployments(ctx context.Context) ([]platform.Deployment, error)
 // Definition registers this adapter and its supported capabilities.
 func Definition() platform.Definition {
 	return platform.Definition{
-		Info:     platform.ProviderInfo{Kind: "argocd", Name: "Argo CD", Category: "cd", Capabilities: []string{"deployments", "sync", "health"}, DefaultAuth: "bearer", AuthMethods: []string{"bearer", "argocd-login", "none"}, PollSeconds: 15},
+		Info:     platform.ProviderInfo{CollectionSource: "default", Kind: "argocd", Name: "Argo CD", Category: "cd", Capabilities: []string{"deployments", "sync", "health"}, DefaultAuth: "bearer", AuthMethods: []string{"bearer", "argocd-login", "none"}, PollSeconds: 15},
 		Validate: validate,
 		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
 			client, err := httpapi.New(c, secret)
@@ -154,3 +154,16 @@ func validate(c platform.Connection) error {
 }
 
 func (p *ArgoCD) Close() error { return p.api.Close() }
+
+func Manifest() platform.Manifest {
+	schema := platform.CardContribution{}.ConfigSchema
+	return platform.Manifest{ID: "argocd", Version: "0.1.0", ContractVersion: platform.ContractVersion,
+		Providers:  []platform.ProviderContribution{{ID: "argocd", Name: "Argo CD"}},
+		Cards:      []platform.CardContribution{{ID: "deployments", Title: "Argo CD", Capability: "deployments", Renderer: "table", ConfigSchema: schema}},
+		Dashboards: []platform.DashboardContribution{{ID: "overview", Title: "Argo CD", Cards: []string{"deployments"}}},
+		Queries:    []platform.QueryContribution{{ID: "deployments", Title: "Argo CD query", Capability: "deployments", Renderer: "table", InputSchema: schema}},
+	}
+}
+func (p *ArgoCD) PublishSources(ctx context.Context, host platform.SourceRegistrar) error {
+	return host.Update(ctx, platform.SourceDescriptor{ID: "default", Name: "Argo CD", Capabilities: []string{"deployments"}}, p)
+}

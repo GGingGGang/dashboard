@@ -18,6 +18,7 @@ type SourceChange struct {
 	Handle     string               `json:"handle"`
 }
 type Request struct {
+	JSON   sdk.JSONRequest   `json:"json"`
 	Handle string            `json:"handle"`
 	Target string            `json:"target"`
 	Offset int               `json:"offset"`
@@ -33,6 +34,9 @@ type Builds struct {
 
 func Capabilities(p sdk.Provider) []string {
 	out := []string{}
+	if _, ok := sdk.Resolve(p, "json").(sdk.JSONSource); ok {
+		out = append(out, "json")
+	}
 	if _, ok := sdk.Resolve(p, "builds").(sdk.BuildSource); ok {
 		out = append(out, "builds")
 	}

@@ -22,6 +22,7 @@ func Connections(base string) []platform.Connection {
 		rules[i].Enabled = true
 	}
 	return []platform.Connection{
+		{ID: "demo-json", Kind: "json", Name: "Demo · HTTP JSON", URL: base + "/json", Auth: "none"},
 		{ID: "demo-ci", Kind: "jenkins", Name: "Demo · Jenkins", URL: base + "/jenkins", Auth: "none", Targets: []platform.Target{{ID: "/job/payments/", Name: "payments", Service: "payments", Environment: "demo"}, {ID: "/job/catalog/", Name: "catalog", Service: "catalog", Environment: "demo"}}},
 		{ID: "demo-cd", Kind: "argocd", Name: "Demo · Argo CD", URL: base + "/argocd", Auth: "none", Targets: []platform.Target{{ID: "argocd/payments", Name: "payments", Service: "payments", Environment: "demo"}, {ID: "argocd/catalog", Name: "catalog", Service: "catalog", Environment: "demo"}}},
 		{ID: "demo-metrics", Kind: "prometheus", Name: "Demo · Prometheus", URL: base + "/prometheus", Auth: "none", Rules: rules},
@@ -45,6 +46,8 @@ func Start() (string, func()) {
 		}
 		var result any
 		switch {
+		case r.URL.Path == "/json":
+			result = []map[string]any{{"id": "9223372036854775807", "service": "payments", "count": 42}}
 		case r.URL.Path == "/loki/loki/api/v1/query_range":
 			end, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
 			result = map[string]any{"status": "success", "data": map[string]any{"resultType": "streams", "result": []any{map[string]any{"stream": map[string]string{"service_name": "payments"}, "values": [][]any{{strconv.FormatInt(end-1e9+123456789, 10), "GET /payments 200", map[string]string{"trace_id": "0123456789abcdef0123456789abcdef"}}}}}}}

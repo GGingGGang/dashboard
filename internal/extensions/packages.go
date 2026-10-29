@@ -152,6 +152,9 @@ func definitions(root string, m sdk.Manifest) ([]sdk.Definition, error) {
 			return nil, errors.New("Provider executable is missing or not a regular file")
 		}
 		info := p.Info.Clone()
+		if info.CollectionSource == "" {
+			info.CollectionSource = "default"
+		}
 		seen := map[string]bool{}
 		actual := 0
 		for _, capability := range info.Capabilities {
@@ -160,7 +163,7 @@ func definitions(root string, m sdk.Manifest) ([]sdk.Definition, error) {
 			}
 			seen[capability] = true
 			switch capability {
-			case "builds", "queue", "deployments", "metrics", "logs", "traces", "data":
+			case "builds", "queue", "deployments", "metrics", "logs", "traces", "data", "json":
 				actual++
 			case "history", "sync", "health", "instant", "range", "rules":
 			default:

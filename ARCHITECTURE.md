@@ -69,7 +69,7 @@ flowchart TD
 
 `internal/architecture/boundaries_test.go` checks production Go imports during `go test ./...`. Integration tests may compose multiple layers. `TestProvidersBuildOutsideCore` also compiles the actual adapters in a separate consumer module with only an SDK dependency and network resolution disabled. The HTTP helper is public within the SDK; its production code has no core dependencies.
 
-The current extension model is **source contributions compiled with the app**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. Compiled definitions now enter an atomic plugin registry, with persisted enable/disable and scoped source publication through explicit Source APIs. The app still uses the compiled registration list; contributed UI is manifest-driven; external loading remains phase 5. See [SDK status](sdk/README.md).
+The extension model supports **compiled built-ins and trusted external ZIP packages**. The public SDK now contains the shared data interfaces and initial manifest/source-publication declarations. Compiled definitions now enter an atomic plugin registry, with persisted enable/disable and scoped source publication through explicit Source APIs. The host reads manifests for built-in and external providers; contributed UI is manifest-driven and external implementations use JSON-RPC stdio. See [SDK status](sdk/README.md).
 
 
 ## Data contracts
@@ -127,7 +127,7 @@ Logs and traces now have independent typed contracts and bounded on-demand explo
 
 This implementation adopts the application boundary, optional discovery, explicit on-demand policy, ownership copies, and cooperative lifecycle portions of the design brief. It does not mark all 22 proposed invariants as implemented.
 
-- Keep typed observations and compiled-in definitions. Loki and Tempo are additional compiled-in adapters. The public SDK and restricted declarative schemas are implemented; subprocess runtime remains phase 5.
+- Keep typed observations and compiled-in definitions. Loki and Tempo are additional compiled-in adapters. The public SDK and restricted declarative schemas are implemented; trusted ZIP installation and subprocess runtime are implemented.
 - Assign a fresh opaque runtime revision to each configured connection lifecycle. Edits, deletion, and credential replacement cancel the old lifetime. Failed persistence restarts the previous configuration under a fresh lifetime. Revision is visible in ConnectionView but is not a stored schema version.
 - Polling owns one provider per connection lifetime; manual Query/TestConnection owns one provider per operation. Each closes an optional `io.Closer` after its last call. Built-in closers close idle HTTP connections. Failed registry capability validation also closes the constructed provider.
 - Query and TestConnection register with the host before acquiring the two-slot gate. Their 8/45-second deadlines include queue time; provider creation and credential access happen after admission. Poll has a 60-second cycle budget including queue time and each module has 12 seconds. Load-based fairness and target-level fan-out budgets remain separate work.
@@ -156,7 +156,7 @@ The board is 12 columns wide with at most 24 non-overlapping cards. `dashboard-l
 
 The `json` node originally extended layout v1 and remains supported in v2 with an exact `json` configuration (`source: http`, URL, jq filter), requires manual refresh and preserves existing node formats. Older clients reject this new kind rather than rewriting it. `api-query.ts` captures configuration, executes a manual preview and seeds the added node with that result without issuing a duplicate request. Results are not persisted. The UI invalidates old replies when settings or pages change.
 
-`App.ReadJSON` delegates to the application-owned `JSONReader` port. `Service.ReadJSON` reuses admission, cancellation and shutdown tracking with a 25-second overall budget. The composition root supplies `internal/jsonsource.Reader`, which performs unauthenticated GET and embedded gojq evaluation. No provider connection or credential store is involved; no shell process is started. HTTP is bounded to 20 seconds/8 MiB, and jq receives a cooperative 2-second context with 200 outputs/1 MiB display bounds. This is an in-process interpreter, not a resource-isolated subprocess sandbox. JSON scalar values cross the frontend bridge as exact text, not JS numbers.
+`App.ReadJSON` retains its original request/result contract. `Service.ReadJSON` reuses admission, cancellation and shutdown tracking with a 25-second overall budget, resolves the enabled JSON plugin, and leases a transient SDK `JSONSource`. `internal/providers/jsonapi` owns unauthenticated GET and embedded gojq evaluation. Saved JSON connections additionally expose table/scalar `DataSource` contributions. Legacy API cards require no saved connection or credential store; no shell process is started. HTTP is bounded to 20 seconds/8 MiB, and jq receives a cooperative 2-second context with 200 outputs/1 MiB display bounds. This is an in-process interpreter, not a resource-isolated subprocess sandbox. JSON scalar values cross the frontend bridge as exact text, not JS numbers.
 
 ## Plugin and source lifecycle (phase 2)
 
@@ -173,8 +173,8 @@ Application coordinates activation through `SetPluginEnabled`. It saves the
 leaves working instances intact. Disabling retains connection settings,
 credentials, dashboard preferences and archives, cancels queued/active operations
 and leaves an unavailable snapshot. Startup restores disabled state before
-starting collection. Registration removal/package replacement remains restart
-work for the external loader phase.
+starting collection. Package installation, removal and replacement take effect after restart; see
+[external package lifecycle](EXTERNAL_PLUGINS.md).
 
 Each connection runner can lazily own a `platform.Sources` scope. The provider
 receives only the SDK registrar. Register/update validates exact source
@@ -187,10 +187,11 @@ resource map so repeated updates do not retain closed clients.
 `Sources` and `QuerySource` are explicit Wails APIs; metric queries use existing
 connection/global admission. Publication failure rolls back all accepted sources
 and can be retried. These APIs are the first consumers of the new source registry.
-Jenkins collection now leases its declared CollectionSource, wakes on source
-changes and resets transient collector state on replacement. Cancelled build
-responses are checked before archive writes. Remaining providers and legacy
-bridge queries retain compatibility paths until their migration.
+All six built-in providers publish `default`. Background collection and legacy
+metric/log/trace queries lease their declared CollectionSource. Source changes
+wake collection and reset transient state; cancelled build responses are checked
+before archive writes. Injected definitions without CollectionSource retain the
+legacy compatibility path. Failed external processes are recreated on the next call.
 
 ## Declarative contributions (phase 4)
 
@@ -201,8 +202,8 @@ unavailable. ExecuteContribution resolves a live declaration, validates/defaults
 input, acquires a source under connection admission, dispatches a typed capability
 and copies a bounded result. It rejects stale source, connection and plugin
 activation revisions, including a UI-only plugin reading another provider's source.
-Such cross-plugin calls finish cooperatively or time out; disabling a UI-only
-plugin invalidates results without closing another plugin's provider.
+Disabling a UI-only plugin cancels its active calls and rejects stale results
+without closing another plugin's provider.
 
 SDK DataSource provides table/scalar/timeseries for new domains. Existing typed
 sources keep their contracts and archive semantics; core converts their records
@@ -210,6 +211,8 @@ for declarative display. Schemas are closed flat objects, shared by forms and
 backend validation. Non-secret provider values live in Connection.Config and are
 copied with settings. See [SDK contract](sdk/README.md) for limits and keywords.
 
-Trusted ZIP loading and JSON-RPC stdio execution remain phase 5. Argo CD,
-Prometheus, Loki, Tempo and JSON migration remain phase 6. No arbitrary frontend
-scripts, upstream writes or process isolation are claimed by phase 4.
+Trusted ZIP loading and JSON-RPC stdio execution are implemented. Jenkins,
+Argo CD, Prometheus, Loki, Tempo and HTTP JSON all own their manifests and source
+publication. Core consumes SDK interfaces; providers import no core implementation.
+Arbitrary frontend scripts and upstream writes are unsupported. External processes
+provide a fault/lifecycle boundary, not an OS sandbox.

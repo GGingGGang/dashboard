@@ -71,3 +71,8 @@ Upstream API status and partial typed results are preserved in JSON-RPC error
 `data`; oversized/malformed frames close the transport. Only declared capability
 interfaces are resolved by core consumers. The extension still depends only on
 the SDK; it never imports registry, storage, credentials or application code.
+
+The SDK also exposes `JSONSource` (`json` RPC method/capability) for the legacy
+HTTP JSON/jq contract. Generic JSON table/scalar contributions use `data`.
+All six built-ins publish scoped sources; external providers without an explicit
+CollectionSource use `default` for collection and legacy query APIs.

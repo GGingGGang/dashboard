@@ -1,4 +1,4 @@
-package jsonsource
+package jsonapi
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	platform "github.com/GGingGGang/dashboard/sdk"
 	"github.com/itchyny/gojq"
-	"idp-dashboard/internal/platform"
 )
 
 func TestPublicHTTPAndJQ(t *testing.T) {
@@ -112,5 +112,35 @@ func TestQueryLimitsAndCancellation(t *testing.T) {
 	defer cancel()
 	if _, err := evaluate(ctx, code, []byte(`{}`)); err == nil {
 		t.Fatal("expected cancellation")
+	}
+}
+
+func TestConfiguredJSONSourcePreservesIDsAndScalarMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("credentials sent")
+		}
+		_, _ = w.Write([]byte(`[{"id":9223372036854775807,"count":42}]`))
+	}))
+	defer server.Close()
+	p := &Provider{url: server.URL}
+	result, err := p.ReadData(context.Background(), map[string]any{"filter": ".", "mode": "table"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range result.Columns {
+		if c.Name == "id" && result.Rows[0][i] != "9223372036854775807" {
+			t.Fatal("integer precision lost", result)
+		}
+	}
+	scalar, err := p.ReadData(context.Background(), map[string]any{"filter": "length", "mode": "scalar"})
+	if err != nil || scalar.Value != "1" {
+		t.Fatal(scalar, err)
+	}
+	if _, err = p.ReadData(context.Background(), map[string]any{"filter": ".", "mode": "scalar"}); err == nil {
+		t.Fatal("object accepted as scalar")
+	}
+	if _, err = p.ReadData(context.Background(), map[string]any{"filter": ".", "path": "https://other.invalid"}); err == nil {
+		t.Fatal("absolute path accepted")
 	}
 }

@@ -18,7 +18,16 @@ func TestProvidersBuildOutsideCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	consumer := t.TempDir()
-	mod := fmt.Sprintf("module example.com/provider-consumer\n\ngo 1.25.0\n\nrequire github.com/GGingGGang/dashboard/sdk v0.0.0\nreplace github.com/GGingGGang/dashboard/sdk => %q\n", filepath.ToSlash(filepath.Join(root, "sdk")))
+	mod := fmt.Sprintf(`module example.com/provider-consumer
+
+go 1.25.0
+require (
+ github.com/GGingGGang/dashboard/sdk v0.0.0
+ github.com/itchyny/gojq v0.12.17
+ github.com/itchyny/timefmt-go v0.1.6
+)
+replace github.com/GGingGGang/dashboard/sdk => %q
+`, filepath.ToSlash(filepath.Join(root, "sdk")))
 	if err := os.WriteFile(filepath.Join(consumer, "go.mod"), []byte(mod), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +60,13 @@ func TestProvidersBuildOutsideCore(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+	}
+	sum, err := os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(consumer, "go.sum"), sum, 0600); err != nil {
+		t.Fatal(err)
 	}
 	cmd := exec.Command("go", "test", "./...")
 	cmd.Dir = consumer

@@ -1,14 +1,9 @@
 package application
 
 import (
-	"context"
 	"idp-dashboard/internal/collector"
 	"idp-dashboard/internal/platform"
 )
-
-type JSONReader interface {
-	Read(context.Context, platform.JSONRequest) (platform.JSONResult, error)
-}
 
 // Store is owned by the application; SQLite is one implementation.
 type Store interface {

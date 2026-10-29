@@ -134,3 +134,41 @@ func TestTypedRecordsKeepLargeNumericIDsAsText(t *testing.T) {
 	}
 	t.Fatal("missing number column")
 }
+
+func TestContributionPreservesPartialLogs(t *testing.T) {
+	var closed atomic.Int32
+	a, c := newTestService(t, func(platform.Connection, string) (platform.Provider, error) {
+		return &queryProvider{closed: &closed}, nil
+	})
+	if err := a.RegisterPlugin(sdk.Manifest{ID: "logcards", Version: "1", ContractVersion: 1, Cards: []sdk.CardContribution{{ID: "logs", Title: "Logs", Capability: "logs", Renderer: "table", ConfigSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"expression":{"type":"string","default":"test"}}}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Sources(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	sources := a.runners[c.ID].sources
+	a.mu.Unlock()
+	p := &logFixture{closed: &closed, query: func(context.Context) (platform.LogResult, error) {
+		return platform.LogResult{Entries: []platform.LogEntry{{Line: "kept", TimestampNS: "1700000000123456789"}}}, errors.New("upstream interrupted")
+	}}
+	if err := sources.Register(context.Background(), sdk.SourceDescriptor{ID: "partial", Name: "Partial", Capabilities: []string{"logs"}}, p); err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.ExecuteContribution(c.ID, "partial", ContributionRequest{PluginID: "logcards", Kind: "card", ID: "logs"})
+	if err != nil || len(result.Rows) != 1 || len(result.Warnings) == 0 {
+		t.Fatalf("lost partial result: %+v, %v", result, err)
+	}
+	found := false
+	for _, cell := range result.Rows[0] {
+		if cell == "1700000000123456789" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("timestamp precision lost", result)
+	}
+	if result.Warnings[len(result.Warnings)-1] != "Partial result: upstream interrupted" {
+		t.Fatal(result.Warnings)
+	}
+}

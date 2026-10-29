@@ -116,3 +116,19 @@ func (a *Service) QuerySource(id, sourceID string, q platform.Query) (result pla
 	result, err = m.Query(callCtx, q)
 	return result.Clone(), err
 }
+
+// operationProvider keeps compatibility for callers supplying unmigrated definitions.
+// Shipped providers and external packages lease their registered source.
+func (a *Service) operationProvider(ctx context.Context, c platform.SavedConnection) (context.Context, platform.Provider, func(), error) {
+	info, _ := a.registry.Info(c.Connection.Kind)
+	if info.CollectionSource != "" {
+		sources, err := a.sourceScope(ctx, c)
+		if err != nil {
+			return ctx, nil, nil, err
+		}
+		callCtx, p, _, release, err := sources.Acquire(ctx, info.CollectionSource)
+		return callCtx, p, release, err
+	}
+	p, err := a.provider(c)
+	return ctx, p, func() { _ = platform.CloseProvider(p) }, err
+}

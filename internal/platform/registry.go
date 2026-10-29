@@ -186,6 +186,9 @@ func ValidateCapabilities(p Provider, declared []string) error {
 		return errors.New("Provider constructor returned no provider")
 	}
 	actual := []string{}
+	if _, ok := sdk.Resolve(p, "json").(sdk.JSONSource); ok {
+		actual = append(actual, "json")
+	}
 	if _, ok := sdk.Resolve(p, "data").(sdk.DataSource); ok {
 		actual = append(actual, "data")
 	}

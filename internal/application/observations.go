@@ -20,12 +20,12 @@ func (a *Service) observationProvider(id string, q platform.SearchRequest) (cont
 		return nil, nil, nil, o, err
 	}
 	o.Revision, _ = ctx.Value(revisionKey{}).(string)
-	p, err := a.provider(c)
+	callCtx, p, release, err := a.operationProvider(ctx, c)
 	if err != nil {
 		done()
 		return nil, nil, nil, o, err
 	}
-	return ctx, func() { _ = platform.CloseProvider(p); done() }, p, o, nil
+	return callCtx, func() { release(); done() }, p, o, nil
 }
 func finishObservation(scope, result platform.Observation, err error, hasData bool) platform.Observation {
 	scope.ObservedAt = time.Now().UTC()

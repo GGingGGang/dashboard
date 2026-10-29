@@ -1,4 +1,4 @@
-package jsonsource
+package jsonapi
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	platform "github.com/GGingGGang/dashboard/sdk"
 	"github.com/itchyny/gojq"
-	"idp-dashboard/internal/platform"
 )
 
 const maxInput = 8 << 20

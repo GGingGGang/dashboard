@@ -1,4 +1,4 @@
-import type { FormSchema } from "./extensions";
+import type { FormSchema, CardContribution } from "./extensions";
 import type {
   Build,
   Connection,
@@ -144,6 +144,7 @@ export function previewBridge(empty = false): Bridge {
             authMethods: ["none", "basic", "bearer"],
           },
           ...["loki", "tempo"].map(kind => ({ kind, name: kind === "loki" ? "Loki" : "Tempo", category: "observability", capabilities: [kind === "loki" ? "logs" : "traces"], onDemand: true, defaultAuth: "none", authMethods: ["none", "basic", "bearer"], queries: { [kind === "loki" ? "logs" : "traces"]: { language: kind === "loki" ? "LogQL" : "TraceQL", defaultExpression: kind === "loki" ? '{service_name="api"}' : '{ true }', maxResults: kind === "loki" ? 500 : 100 } } })),
+          {kind:"json",name:"HTTP JSON",category:"api",capabilities:["data","json"],onDemand:true,defaultAuth:"none",authMethods:["none"]},
         ],
         snapshots: connections.map((c) => ({
           connectionId: c.id,
@@ -287,16 +288,17 @@ export function previewBridge(empty = false): Bridge {
     async UninstallPlugin() { throw new Error("설치한 외부 패키지가 없습니다."); },
     async Plugins() {
       const state = await this.GetState();
-      return state.providers.map(p => ({
-        manifest: { id: p.kind, version: "0.1.0", contractVersion: 1,
-          providers: [{ id: p.kind, name: p.name, executable: "", configSchema: null }],
-          cards: p.kind === "jenkins" ? [
-            {id: "builds", title: "Jenkins builds", capability: "builds", renderer: "table" as const, configSchema: {type: "object", properties: {targetId: {type: "string", title: "Job path"}}, required: ["targetId"]} as FormSchema},
-            {id: "queue", title: "Jenkins queue", capability: "queue", renderer: "table" as const}] : null,
-          dashboards: p.kind === "jenkins" ? [{id: "overview", title: "Jenkins", cards: ["builds", "queue"]}] : null,
-          queries: p.kind === "jenkins" ? [{id: "builds", title: "Build lookup", capability: "builds", renderer: "table" as const, inputSchema: {type: "object", properties: {targetId: {type: "string", title: "Job path"}}, required: ["targetId"]} as FormSchema}] : null },
-        enabled: !disabled.has(p.kind),
-      }));
+      return state.providers.map(p => {
+        const cards: CardContribution[] = p.capabilities.filter(cap => ["builds","queue","deployments","metrics","logs","traces"].includes(cap)).map(capability => {
+          const expression = p.queries?.[capability]?.defaultExpression || p.query?.defaultExpression || "";
+          const configSchema: FormSchema = capability === "builds" ? {type:"object",properties:{targetId:{type:"string",title:"Job path"}},required:["targetId"]}
+            : ["metrics","logs","traces"].includes(capability) ? {type:"object",properties:{expression:{type:"string",title:"Query",default:expression},period:{type:"integer",title:"Period (seconds)",default:3600,minimum:1,maximum:86400}},required:["expression"]}
+            : {type:"object",properties:{}};
+          return {id:capability,title:`${p.name} ${capability}`,capability,renderer:capability === "metrics" ? "timeseries" : "table",configSchema};
+        });
+        if (p.kind === "json") for (const mode of ["table","scalar"] as const) cards.push({id:mode,title:`JSON ${mode}`,capability:"data",renderer:mode,configSchema:{type:"object",properties:{path:{type:"string",title:"Relative API path",default:""},filter:{type:"string",title:"jq",default:mode === "scalar" ? "length" : "."},mode:{type:"string",enum:[mode],default:mode}},required:["filter"]}});
+        return {manifest:{id:p.kind,version:"0.1.0",contractVersion:1,providers:[{id:p.kind,name:p.name,executable:"",configSchema:null}],cards,dashboards:[{id:"overview",title:p.name,cards:cards.map(c=>c.id)}],queries:cards.filter(c=>c.id!=="queue").map(c=>({...c,inputSchema:c.configSchema}))},enabled:!disabled.has(p.kind)};
+      });
     },
     async SetPluginEnabled(id, enabled) {
       if (!(await this.Plugins()).some(p => p.manifest.id === id)) throw new Error("Plugin not found");
@@ -308,7 +310,7 @@ export function previewBridge(empty = false): Bridge {
       const c = connections.find(c => c.id === id);
       if (!c || disabled.has(c.kind)) throw new Error("Connection or plugin unavailable");
       const p = (await this.GetState()).providers.find(p => p.kind === c.kind);
-      const capabilities = (p?.capabilities || []).filter(c => ["builds", "queue", "deployments", "metrics", "logs", "traces"].includes(c));
+      const capabilities = (p?.capabilities || []).filter(c => ["builds", "queue", "deployments", "metrics", "logs", "traces", "data", "json"].includes(c));
       return [{ id: "default", name: c.name, capabilities, revision: 1 }];
     },
     async ExecuteContribution(id, sourceId, request) {
@@ -317,7 +319,14 @@ export function previewBridge(empty = false): Bridge {
       const source = (await this.Sources(id)).find(s => s.id === sourceId);
       if (!item || !source?.capabilities.includes(item.capability)) throw new Error("Plugin contribution unavailable");
       const snapshot = (await this.GetState()).snapshots.find(s => s.connectionId === id);
-      const rows = item.capability === "builds" ? (snapshot?.builds || []).filter(b => b.job === request.input.targetId) : snapshot?.queue || [];
+      const end = Math.floor(Date.now()/1000), expression = String(request.input.expression || ""), start = end - Number(request.input.period || 3600);
+      if (item.capability === "metrics") {const value = await this.Query(id,{expression,start,end});return {type:"timeseries",series:value.series,warnings:value.warnings};}
+      if (item.capability === "data") throw new Error("실제 HTTP JSON 조회는 Windows 앱에서 실행하세요.");
+      const rows: unknown[] = item.capability === "builds" ? (snapshot?.builds || []).filter(b=>b.job===request.input.targetId)
+        : item.capability === "queue" ? snapshot?.queue || []
+        : item.capability === "deployments" ? snapshot?.deployments || []
+        : item.capability === "logs" ? (await this.SearchLogs(id,{expression,start,end,limit:100})).entries
+        : (await this.SearchTraces(id,{expression,start,end,limit:100})).traces;
       const keys = Object.keys(rows[0] || {});
       return {type: "table", columns: keys.map(name => ({name, type: "string"})), rows: rows.map(row => keys.map(k => String((row as unknown as Record<string, unknown>)[k] ?? "")))};
     },

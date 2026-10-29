@@ -19,7 +19,7 @@ type Tempo struct{ api *httpapi.Client }
 
 func Definition() platform.Definition {
 	return platform.Definition{
-		Info: platform.ProviderInfo{Kind: "tempo", Name: "Tempo", Category: "observability", Capabilities: []string{"traces"}, OnDemand: true, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, Queries: map[string]platform.QueryInfo{"traces": {Language: "TraceQL", DefaultExpression: `{ status=error }`, Modes: []string{"search", "detail"}, MaxResults: 100}}},
+		Info: platform.ProviderInfo{CollectionSource: "default", Kind: "tempo", Name: "Tempo", Category: "observability", Capabilities: []string{"traces"}, OnDemand: true, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, Queries: map[string]platform.QueryInfo{"traces": {Language: "TraceQL", DefaultExpression: `{ status=error }`, Modes: []string{"search", "detail"}, MaxResults: 100}}},
 		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
 			api, err := httpapi.New(c, secret)
 			if err != nil {
@@ -185,4 +185,17 @@ func (p *Tempo) Trace(ctx context.Context, rawID string) (platform.TraceResult, 
 		}
 	}
 	return out.Clone(), nil
+}
+
+func Manifest() platform.Manifest {
+	schema := json.RawMessage(`{"type": "object", "properties": {"expression": {"type": "string", "title": "Query", "default": "{ status=error }", "maxLength": 16384}, "period": {"type": "integer", "title": "Period (seconds)", "default": 3600, "minimum": 1, "maximum": 86400}}, "required": ["expression"]}`)
+	return platform.Manifest{ID: "tempo", Version: "0.1.0", ContractVersion: platform.ContractVersion,
+		Providers:  []platform.ProviderContribution{{ID: "tempo", Name: "Tempo"}},
+		Cards:      []platform.CardContribution{{ID: "traces", Title: "Tempo", Capability: "traces", Renderer: "table", ConfigSchema: schema}},
+		Dashboards: []platform.DashboardContribution{{ID: "overview", Title: "Tempo", Cards: []string{"traces"}}},
+		Queries:    []platform.QueryContribution{{ID: "traces", Title: "Tempo query", Capability: "traces", Renderer: "table", InputSchema: schema}},
+	}
+}
+func (p *Tempo) PublishSources(ctx context.Context, host platform.SourceRegistrar) error {
+	return host.Update(ctx, platform.SourceDescriptor{ID: "default", Name: "Tempo", Capabilities: []string{"traces"}}, p)
 }

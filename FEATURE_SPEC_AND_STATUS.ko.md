@@ -1,18 +1,18 @@
 # 기능 명세와 구현 현황
 
-기준일: 2026-10-28. 원문: `private/DESIGN_BRIEF.ko.md`(로컬 비공개 문서).
+기준일: 2026-10-29. 원문: `private/DESIGN_BRIEF.ko.md`(로컬 비공개 문서).
 최초 분류 기준: `9aadaf1`. 현재 상태는 아래 커밋 이력의 구현과 검증 결과를 반영한다.
 
 이 문서는 브리프의 제안과 실제 동작을 구별한다. **완료**는 명시한 범위의 코드와 테스트가 있다는 뜻이며 실서비스 검증을 뜻하지 않는다. **부분**은 계약 일부만 충족한다. **미구현**은 실행 경로가 없다. **조건부 보류**는 이번 범위에서 제외한 선택 사항이다.
 
-이번 범위는 기존 코드 유지, 핵심 계약 보완, Loki 로그와 Tempo 트레이스의 읽기 전용 조회, 개인별 대시보드 배치, 인증 없는 HTTP JSON의 jq 조회다. CLI/MCP 소비자, Command 실행 및 범용 API 인증은 보류한다. 플러그인 확장 1–4단계는 구현했고 외부 프로세스·ZIP 설치는 5단계, 나머지 provider 전환은 6단계다. 브리프의 장기 제안 전체를 이번 릴리스의 완료 조건으로 간주하지 않는다.
+이번 범위는 기존 코드 유지, 핵심 계약 보완, Loki 로그와 Tempo 트레이스의 읽기 전용 조회, 개인별 대시보드 배치, 인증 없는 HTTP JSON의 jq 조회다. CLI/MCP 소비자, Command 실행 및 범용 API 인증은 보류한다. 플러그인 확장 1–6단계를 구현했다. 신뢰한 ZIP 설치·외부 프로세스 실행과 여섯 built-in provider의 source/manifest 전환을 포함한다. 브리프의 장기 제안 전체를 이번 릴리스의 완료 조건으로 간주하지 않는다.
 
 ## 기능별 계약
 
 | ID / 기능 | 명세와 책임 | 현재 상태 / 근거 | 수용 조건과 남은 작업 |
 |---|---|---|---|
 | F01 계층 분리 | Desktop은 UI 입출력, Application은 사용 사례·수명주기, Platform은 계약, Provider는 외부 API 변환, Storage는 보존 담당 | 완료: [Application](internal/application/service.go), [ports](internal/application/ports.go), [Desktop](app.go) | Application이 Wails·구체 저장소·벤더를 import하지 않는다. 기존 기능을 같은 포트로 호출한다. |
-| F02 Provider 등록 | 부작용 없는 설명과 로컬 검증 뒤 생성한다. 선언 capability와 실제 Source 구현이 일치해야 한다 | 완료 범위: [Registry](internal/platform/registry.go), capability별 `Queries`, 기존 `Query` 호환 별칭 | 기존 6개 Source와 범용 DataSource의 선언/구현을 검사한다. 선언형 플러그인 화면과 flat JSON Schema 폼을 제공한다. 권한별 feature 협상과 중첩 스키마는 미구현이다. |
+| F02 Provider 등록 | 부작용 없는 설명과 로컬 검증 뒤 생성한다. 선언 capability와 실제 Source 구현이 일치해야 한다 | 완료 범위: [Registry](internal/platform/registry.go), capability별 `Queries`, 기존 `Query` 호환 별칭 | 기존 6개 Source와 범용 DataSource·JSONSource의 선언/구현을 검사한다. 선언형 플러그인 화면과 flat JSON Schema 폼을 제공한다. 권한별 feature 협상과 중첩 스키마는 미구현이다. |
 | F03 설정·자격증명 | 연결별 endpoint, tenant, 사용자, secret binding을 분리한다. 비밀은 OS 저장소에만 둔다 | 완료 범위: tenant 검증, HTTP 헤더, 기존 연결의 tenant 변경 거절, 다른 tenant에 저장 secret 사용 거절 | [binding 테스트](internal/application/observations_test.go). 로컬 검증은 네트워크 호출을 하지 않는다. OS 비밀 삭제 실패 후 잔여 항목 청소는 남음. |
 | F04 인스턴스 수명주기 | revision마다 취소 범위와 소유권을 갖고, 종료 시 요청을 배수한 뒤 Close한다 | 완료 범위: 협력적 취소, 늦은 성공·실패 무효화, 종료 대기 | [수명주기 테스트](internal/application/service_test.go). 비협력적 in-process Provider의 강제 중단은 보장하지 않는다. |
 | F05 수집·예산 | capability와 자동 수집을 분리한다. 대기·실행·응답 크기·건수에 유한 한도를 둔다 | 완료 범위: on-demand, 전역 2/연결별 1, HTTP 8초/8MiB, 대기 포함 poll 60초, module별 12초 | 수동 조회 8초/연결검사 45초에 대기 포함. target별 freshness와 부하 기반 공정성 측정은 남음. 취소는 협력적이다. |
@@ -29,7 +29,7 @@
 | F16 호환성·이전 | 미래 DB 버전을 거절하고 실패 시 원본을 보존한다. 백업은 이후 관측의 복구를 보장하지 않는다 | 부분: DB v1 유지, 설정 schemaVersion 0/1 지원·저장 시 1, 미래 설정 덮어쓰기 거절, backup | 설정 편집은 transaction으로 처리한다. 실제 DB schema 변경은 없으므로 versioned migration/재시도 검증은 남음. |
 | F17 전송 정밀도 | JS 안전 정수를 넘는 ID와 ns 시각은 문자열로 전송한다. 단위를 명시한다 | 부분: Loki/Tempo ns·ID·OTLP int64 문자열 보존 검증 완료 | 기존 build number는 숫자이므로 F08과 함께 변경해야 한다. 표시용 날짜 변환과 원본 ns 표시를 구분한다. |
 | F18 소비자 | Application 계약을 여러 소비자가 공유하고 UI가 정책을 복제하지 않는다 | 부분: Desktop 사용, 분리된 Application | CLI/MCP 구현은 **조건부 보류**. 공유 계약과 headless 테스트는 유지한다. |
-| F19 런타임 확장 | 컴파일 등록과 외부 프로세스 프로토콜을 구분한다 | 정적 등록 완료, 외부 프로세스 **조건부 보류** | 필요 시 Windows subprocess/handshake/version/cancel/신뢰 설치 정책을 별도 ADR로 결정한다. 프로세스 분리가 sandbox는 아니다. |
+| F19 런타임 확장 | 컴파일 등록과 외부 프로세스 프로토콜을 구분한다 | 완료: 정적 등록, 신뢰한 ZIP 설치·업그레이드·제거, JSON-RPC stdio 실행 | handshake/version/cancel 및 중단 후 다음 조회 재생성을 검증했다. 패키지 변경은 재시작 후 적용된다. 서명과 OS sandbox는 제공하지 않는다. |
 | F20 검증·기록 | 계약/HTTP fixture/통합/UI/DB 검증과 선택적 live 검증을 분리한다 | 실행 근거와 최종 테스트 수·빌드 결과는 [VERIFICATION](VERIFICATION.md)에 기록한다 | 이번 UI의 네이티브 직접 조작·실서비스·대규모 부하 검증은 미수행이다. 과거 네이티브 검증과 구분한다. |
 | F21 개인 대시보드 | 개발자가 계속 열어 두는 화면에서 카드의 위치·크기·내용을 직접 구성한다. 저장된 배치가 유효하지 않으면 원본을 보존한다 | 완료 범위: [layout](frontend/src/components/dashboard-layout.ts), [controller](frontend/src/components/dashboard.ts), [data](frontend/src/components/dashboard-data.ts). `dashboard.layout` v2는 v1 원본을 별도 백업하고 SQLite preference에 저장하며 12열·최대 24개·비중첩을 검증한다 | 빌드/대기열/배포는 수집 snapshot을 표시한다. 지표/로그/트레이스는 대시보드를 여는 시점·수동 새로고침·선택한 주기에만 직접 조회한다. 로그 100행, 트레이스 30건, 24시간 범위를 넘지 않는다. 빈 배치는 저장한다. 손상되었거나 미래 버전인 배치는 덮어쓰지 않고 편집을 막는다. 배치·조회 수명주기·저장 실패는 브라우저 fixture로 검증했다. |
 
@@ -45,7 +45,7 @@ Loki는 [공식 range API](https://grafana.com/docs/loki/latest/reference/loki-h
 
 ## 이번 범위에서 남긴 항목
 
-CLI/MCP는 보류다. 외부 프로세스 플러그인·ZIP 설치는 다음 5단계다. 그 밖에 실제 두 번째 CI와 archive migration, provider-owned cursor, target별 상세 freshness, 기존 Source 전체의 envelope 전환, 자동 상관관계, 중첩·고급 설정 schema, 파일 import/export는 아직 구현되지 않았다. 각각 F08/F09/F05/F07/F14/F02/F15의 수용 조건을 충족한 뒤 도입한다. Loki tail과 LogQL/TraceQL metrics도 지원한다고 선언하지 않는다.
+CLI/MCP는 보류다. 외부 패키지의 서명·OS sandbox·자동 버전 정리는 미구현이다. 그 밖에 실제 두 번째 CI와 archive migration, provider-owned cursor, target별 상세 freshness, 기존 Source 전체의 envelope 전환, 자동 상관관계, 중첩·고급 설정 schema, 파일 import/export는 아직 구현되지 않았다. 각각 F08/F09/F05/F07/F14/F02/F15의 수용 조건을 충족한 뒤 도입한다. Loki tail과 LogQL/TraceQL metrics도 지원한다고 선언하지 않는다.
 
 ## 불변식 대응
 
@@ -72,7 +72,7 @@ CLI/MCP는 보류다. 외부 프로세스 플러그인·ZIP 설치는 다음 5�
 | INV-19 설정·migration | F15/F16 | unknown 필드 보존 완료, DB migration은 변경 사례 필요 |
 | INV-20 호환 거절 | F16 | 미래 DB/설정 거절 완료, 여러 릴리스 지원 창은 미정 |
 | INV-21 증거 기반 연계 | F14 | 자동 상관관계 미구현 |
-| INV-22 구현 교체 불변성 | F19/F20 | 정적 테스트 일부, 외부 실행은 보류 |
+| INV-22 구현 교체 불변성 | F19/F20 | 독립 SDK 소비자 빌드와 실제 subprocess 통합 테스트 완료; 실서비스 검증은 별도 |
 
 ## 설계 결정과 보류 이유
 

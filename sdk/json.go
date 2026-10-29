@@ -1,6 +1,9 @@
 package sdk
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type JSONRequest struct {
 	Source string `json:"source"`
@@ -14,4 +17,9 @@ type JSONResult struct {
 	Scalar     bool      `json:"scalar"`
 	Count      int       `json:"count"`
 	ObservedAt time.Time `json:"observedAt"`
+}
+
+type JSONSource interface {
+	Provider
+	ReadJSON(context.Context, JSONRequest) (JSONResult, error)
 }

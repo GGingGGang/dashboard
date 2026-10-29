@@ -17,7 +17,7 @@ type Loki struct{ api *httpapi.Client }
 
 func Definition() platform.Definition {
 	return platform.Definition{
-		Info: platform.ProviderInfo{Kind: "loki", Name: "Loki", Category: "observability", Capabilities: []string{"logs"}, OnDemand: true, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, Queries: map[string]platform.QueryInfo{"logs": {Language: "LogQL", DefaultExpression: `{service_name=~".+"}`, Modes: []string{"search"}, MaxResults: 500}}},
+		Info: platform.ProviderInfo{CollectionSource: "default", Kind: "loki", Name: "Loki", Category: "observability", Capabilities: []string{"logs"}, OnDemand: true, DefaultAuth: "none", AuthMethods: []string{"none", "basic", "bearer"}, Queries: map[string]platform.QueryInfo{"logs": {Language: "LogQL", DefaultExpression: `{service_name=~".+"}`, Modes: []string{"search"}, MaxResults: 500}}},
 		Create: func(c platform.Connection, secret string) (platform.Provider, error) {
 			api, err := httpapi.New(c, secret)
 			if err != nil {
@@ -97,4 +97,17 @@ func (p *Loki) SearchLogs(ctx context.Context, q platform.SearchRequest) (out pl
 		}
 	}
 	return out, nil
+}
+
+func Manifest() platform.Manifest {
+	schema := json.RawMessage(`{"type": "object", "properties": {"expression": {"type": "string", "title": "Query", "default": "{service_name=~\".+\"}", "maxLength": 16384}, "period": {"type": "integer", "title": "Period (seconds)", "default": 3600, "minimum": 1, "maximum": 86400}}, "required": ["expression"]}`)
+	return platform.Manifest{ID: "loki", Version: "0.1.0", ContractVersion: platform.ContractVersion,
+		Providers:  []platform.ProviderContribution{{ID: "loki", Name: "Loki"}},
+		Cards:      []platform.CardContribution{{ID: "logs", Title: "Loki", Capability: "logs", Renderer: "table", ConfigSchema: schema}},
+		Dashboards: []platform.DashboardContribution{{ID: "overview", Title: "Loki", Cards: []string{"logs"}}},
+		Queries:    []platform.QueryContribution{{ID: "logs", Title: "Loki query", Capability: "logs", Renderer: "table", InputSchema: schema}},
+	}
+}
+func (p *Loki) PublishSources(ctx context.Context, host platform.SourceRegistrar) error {
+	return host.Update(ctx, platform.SourceDescriptor{ID: "default", Name: "Loki", Capabilities: []string{"logs"}}, p)
 }

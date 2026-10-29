@@ -237,3 +237,8 @@ func (r *remote) ReadData(ctx context.Context, input map[string]any) (v sdk.Data
 	err = r.call(ctx, "data", protocol.Request{Input: input}, &v)
 	return
 }
+
+func (r *remote) ReadJSON(ctx context.Context, q sdk.JSONRequest) (v sdk.JSONResult, err error) {
+	err = r.call(ctx, "json", protocol.Request{JSON: q}, &v)
+	return
+}
