@@ -24,7 +24,11 @@ func (a *Service) sourceScope(ctx context.Context, c platform.SavedConnection) (
 		return nil, err
 	}
 	if r.sources != nil {
-		return r.sources, nil
+		if r.sources.Failure() == nil {
+			return r.sources, nil
+		}
+		r.sources.Close()
+		r.sources = nil
 	}
 	p, err := a.provider(c)
 	if err != nil {
@@ -105,7 +109,7 @@ func (a *Service) QuerySource(id, sourceID string, q platform.Query) (result pla
 			err = callCtx.Err()
 		}
 	}()
-	m, ok := p.(platform.MetricSource)
+	m, ok := platform.Resolve(p, "metrics").(platform.MetricSource)
 	if !ok {
 		return result, errors.New("Source does not support metrics")
 	}

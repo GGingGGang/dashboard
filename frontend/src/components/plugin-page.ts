@@ -9,11 +9,28 @@ import type { DashboardWidget } from "./dashboard-layout";
 export async function mountPlugins(root: HTMLElement, state: State, alive: () => boolean, add: (binding: ExtensionBinding, connection: string, title: string, existing?: string) => Promise<void>, refresh: () => Promise<void>, pluginId?: string, dashboardId?: string, editing?: DashboardWidget) {
   const plugin = plugins.find(p => p.manifest.id === pluginId);
   if (!plugin) {
-    root.innerHTML = `<section class="panel extension-panel"><h2>플러그인</h2><p>플러그인의 대시보드와 조회를 열어 내 대시보드에 정보를 추가하세요.</p>${plugins.map(p => `<article class="panel extension-panel"><h3>${esc(p.manifest.id)} <small>${esc(p.manifest.version)}</small></h3><button data-plugin-toggle="${esc(p.manifest.id)}">${p.enabled ? "비활성화" : "활성화"}</button>${(p.manifest.dashboards || []).map(d => `<button data-page="plugin:${esc(p.manifest.id)}:${esc(d.id)}">${esc(d.title)}</button>`).join("")}<button data-page="plugin:${esc(p.manifest.id)}">카드 · Query</button></article>`).join("") || '<p>등록된 플러그인이 없습니다.</p>'}<p role="alert" id="plugin-error"></p></section>`;
+    let installed: Awaited<ReturnType<typeof api.InstalledPlugins>> = [];
+    let packageError = "";
+    if (typeof api.InstalledPlugins === "function") { try { installed = await api.InstalledPlugins(); } catch (error) { packageError = String(error); } }
+    if (!alive()) return;
+    root.innerHTML = `<section class="panel extension-panel"><h2>플러그인</h2><p>플러그인의 대시보드와 조회를 열어 내 대시보드에 정보를 추가하세요.</p>${plugins.map(p => `<article class="panel extension-panel"><h3>${esc(p.manifest.id)} <small>${esc(p.manifest.version)}</small></h3><button data-plugin-toggle="${esc(p.manifest.id)}">${p.enabled ? "비활성화" : "활성화"}</button>${(p.manifest.dashboards || []).map(d => `<button data-page="plugin:${esc(p.manifest.id)}:${esc(d.id)}">${esc(d.title)}</button>`).join("")}<button data-page="plugin:${esc(p.manifest.id)}">카드 · Query</button></article>`).join("") || '<p>등록된 플러그인이 없습니다.</p>'}<section class="panel extension-panel"><h3>외부 패키지</h3><p>설치·업그레이드·제거는 앱을 다시 시작하면 적용됩니다. 연결·이력·카드 설정은 유지됩니다.</p><label><input type="checkbox" id="plugin-trust"> 이 ZIP의 제공자를 신뢰합니다. provider는 내 계정 권한으로 실행됩니다.</label><button id="plugin-install" disabled>신뢰한 ZIP 설치 · 업그레이드</button>${installed.map(p => `<article><h4>${esc(p.manifest.id)} · ${esc(p.manifest.version || "")}</h4><p>${p.pendingRemoval ? "제거 예약 · 재시작 필요" : p.pendingRestart ? "설치/변경 예약 · 재시작 필요" : "설치됨"}</p>${p.error ? `<p class="notice error">${esc(p.error)}</p>` : ""}${p.pendingRemoval ? "" : `<button data-plugin-uninstall="${esc(p.manifest.id)}">다음 시작에서 제거</button>`}</article>`).join("")}</section><p role="alert" id="plugin-error">${esc(packageError)}</p></section>`;
     root.querySelectorAll<HTMLButtonElement>("[data-plugin-toggle]").forEach(button => button.onclick = async () => {
       button.disabled = true;
       try { const p = plugins.find(p => p.manifest.id === button.dataset.pluginToggle)!; await api.SetPluginEnabled(p.manifest.id, !p.enabled); await loadPlugins(); if (alive()) await refresh(); }
       catch (e) { if (alive()) { root.querySelector("#plugin-error")!.textContent = String(e); button.disabled = false; } }
+    });
+    const trust = root.querySelector<HTMLInputElement>("#plugin-trust")!;
+    const install = root.querySelector<HTMLButtonElement>("#plugin-install")!;
+    trust.onchange = () => { install.disabled = !trust.checked; };
+    install.onclick = async () => {
+      install.disabled = true;
+      try { await api.InstallPlugin(trust.checked); if (alive()) await refresh(); }
+      catch (e) { if (alive()) { root.querySelector("#plugin-error")!.textContent = String(e); install.disabled = !trust.checked; } }
+    };
+    root.querySelectorAll<HTMLButtonElement>("[data-plugin-uninstall]").forEach(button => button.onclick = async () => {
+      button.disabled = true;
+      try { await api.UninstallPlugin(button.dataset.pluginUninstall!); if (alive()) await refresh(); }
+      catch(e) { if (alive()) { root.querySelector("#plugin-error")!.textContent = String(e); button.disabled = false; } }
     });
     return;
   }

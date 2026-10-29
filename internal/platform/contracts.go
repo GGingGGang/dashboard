@@ -47,3 +47,5 @@ type Definition = sdk.Definition
 func CloseProvider(p Provider) error         { return sdk.CloseProvider(p) }
 func CloneTargets(targets []Target) []Target { return sdk.CloneTargets(targets) }
 func ValidateConnection(c Connection) error  { return sdk.ValidateConnection(c) }
+
+func Resolve(p Provider, capability string) Provider { return sdk.Resolve(p, capability) }

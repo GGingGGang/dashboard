@@ -247,3 +247,17 @@ func (s *Sources) Close() {
 
 // Changes coalesces registrations so collectors can promptly reacquire sources.
 func (s *Sources) Changes() <-chan struct{} { return s.changed }
+
+// Failure reports a dead transport so the application can rebuild the scope.
+func (s *Sources) Failure() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for p := range s.resources {
+		if status, ok := p.(sdk.ProviderStatus); ok {
+			if err := status.Err(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

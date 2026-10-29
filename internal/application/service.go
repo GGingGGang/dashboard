@@ -193,6 +193,7 @@ func (a *Service) start(c platform.SavedConnection) {
 		}
 		poller := collector.NewCollector(c.Connection, p, a.store)
 		var sourceRevision uint64
+		var lastSources *platform.Sources
 		var sourceChanges <-chan struct{}
 		info, _ := a.registry.Info(c.Connection.Kind)
 		interval := time.Duration(info.PollSeconds) * time.Second
@@ -217,7 +218,8 @@ func (a *Service) start(c platform.SavedConnection) {
 					callCtx, source, revision, releaseSource, acquireErr := sources.Acquire(sourceCtx, info.CollectionSource)
 					sourceErr = acquireErr
 					if acquireErr == nil {
-						if revision != sourceRevision {
+						if sources != lastSources || revision != sourceRevision {
+							lastSources = sources
 							poller = collector.NewCollector(c.Connection, source, a.store)
 							sourceRevision = revision
 						}
@@ -437,7 +439,7 @@ func (a *Service) TestConnection(input ConnectionInput) (result ConnectionTest, 
 		return ConnectionTest{}, err
 	}
 	result = ConnectionTest{Targets: []platform.Target{}, Discovery: "unsupported"}
-	if discovery, ok := p.(platform.TargetDiscoverer); ok {
+	if discovery, ok := platform.Resolve(p, "discover").(platform.TargetDiscoverer); ok {
 		targets, discoveryErr := discovery.Discover(ctx)
 		if discoveryErr != nil {
 			result.Discovery = "failed"
@@ -474,7 +476,7 @@ func (a *Service) Query(id string, q platform.Query) (result platform.QueryResul
 		return platform.QueryResult{}, err
 	}
 	defer platform.CloseProvider(p)
-	m, ok := p.(platform.MetricSource)
+	m, ok := platform.Resolve(p, "metrics").(platform.MetricSource)
 	if !ok {
 		return platform.QueryResult{}, errors.New("This provider does not support metrics")
 	}

@@ -4,6 +4,9 @@ import type { JSONRequest, JSONResult } from "../shared/json-query";
 import type { PluginState, SourceState, ContributionRequest, DataResult } from "./extensions";
 
 export type Bridge = {
+  InstalledPlugins(): Promise<{manifest: PluginState["manifest"]; pendingRestart: boolean; pendingRemoval: boolean; error?: string}[]>;
+  InstallPlugin(trusted: boolean): Promise<string>;
+  UninstallPlugin(id: string): Promise<void>;
   ExecuteContribution(connectionId: string, sourceId: string, request: ContributionRequest): Promise<DataResult>;
   Plugins(): Promise<PluginState[]>;
   SetPluginEnabled(id: string, enabled: boolean): Promise<void>;

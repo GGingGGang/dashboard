@@ -63,7 +63,7 @@ func (a *Service) SearchLogs(id string, q platform.SearchRequest) (result platfo
 			err = ctx.Err()
 		}
 	}()
-	source, ok := p.(platform.LogSource)
+	source, ok := platform.Resolve(p, "logs").(platform.LogSource)
 	if !ok {
 		return result, errors.New("This provider does not support logs")
 	}
@@ -83,7 +83,7 @@ func (a *Service) SearchTraces(id string, q platform.SearchRequest) (result plat
 			err = ctx.Err()
 		}
 	}()
-	source, ok := p.(platform.TraceSource)
+	source, ok := platform.Resolve(p, "traces").(platform.TraceSource)
 	if !ok {
 		return result, errors.New("This provider does not support traces")
 	}
@@ -103,7 +103,7 @@ func (a *Service) Trace(id, traceID string) (result platform.TraceResult, err er
 			err = ctx.Err()
 		}
 	}()
-	source, ok := p.(platform.TraceSource)
+	source, ok := platform.Resolve(p, "traces").(platform.TraceSource)
 	if !ok {
 		return result, errors.New("This provider does not support traces")
 	}

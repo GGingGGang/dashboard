@@ -282,6 +282,9 @@ export function previewBridge(empty = false): Bridge {
       return "";
     },
     async Refresh() {},
+    async InstalledPlugins() { return []; },
+    async InstallPlugin() { throw new Error("ZIP 설치는 데스크톱 앱에서 사용할 수 있습니다."); },
+    async UninstallPlugin() { throw new Error("설치한 외부 패키지가 없습니다."); },
     async Plugins() {
       const state = await this.GetState();
       return state.providers.map(p => ({

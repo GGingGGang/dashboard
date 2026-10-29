@@ -21,6 +21,8 @@ type Manifest struct {
 }
 
 type ProviderContribution struct {
+	// Info supplies metadata without executing an external binary.
+	Info         *ProviderInfo   `json:"info,omitempty"`
 	ID           string          `json:"id"`
 	Name         string          `json:"name"`
 	Executable   string          `json:"executable"`

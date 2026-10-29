@@ -92,19 +92,19 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 	implemented := false
 	switch capability {
 	case "data":
-		_, implemented = p.(sdk.DataSource)
+		_, implemented = sdk.Resolve(p, "data").(sdk.DataSource)
 	case "builds":
-		_, implemented = p.(sdk.BuildSource)
+		_, implemented = sdk.Resolve(p, "builds").(sdk.BuildSource)
 	case "queue":
-		_, implemented = p.(sdk.QueueSource)
+		_, implemented = sdk.Resolve(p, "queue").(sdk.QueueSource)
 	case "deployments":
-		_, implemented = p.(sdk.DeploymentSource)
+		_, implemented = sdk.Resolve(p, "deployments").(sdk.DeploymentSource)
 	case "metrics":
-		_, implemented = p.(sdk.MetricSource)
+		_, implemented = sdk.Resolve(p, "metrics").(sdk.MetricSource)
 	case "logs":
-		_, implemented = p.(sdk.LogSource)
+		_, implemented = sdk.Resolve(p, "logs").(sdk.LogSource)
 	case "traces":
-		_, implemented = p.(sdk.TraceSource)
+		_, implemented = sdk.Resolve(p, "traces").(sdk.TraceSource)
 	}
 	if !implemented {
 		return result, errors.New("Source capability changed; retry the query")
@@ -132,7 +132,7 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 	var records any
 	switch capability {
 	case "data":
-		result, err = p.(sdk.DataSource).ReadData(callCtx, input)
+		result, err = sdk.Resolve(p, "data").(sdk.DataSource).ReadData(callCtx, input)
 	case "builds":
 		allowed := false
 		for _, t := range c.Connection.Targets {
@@ -144,20 +144,20 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 			return result, errors.New("Select a configured build target")
 		}
 		var more bool
-		records, more, err = p.(sdk.BuildSource).Builds(callCtx, targetID, 0)
+		records, more, err = sdk.Resolve(p, "builds").(sdk.BuildSource).Builds(callCtx, targetID, 0)
 		if more {
 			result.Warnings = []string{"Additional builds are available in history"}
 		}
 	case "queue":
-		records, err = p.(sdk.QueueSource).Queue(callCtx)
+		records, err = sdk.Resolve(p, "queue").(sdk.QueueSource).Queue(callCtx)
 	case "deployments":
-		records, err = p.(sdk.DeploymentSource).Deployments(callCtx)
+		records, err = sdk.Resolve(p, "deployments").(sdk.DeploymentSource).Deployments(callCtx)
 	case "metrics":
 		if q.Expression == "" || len(q.Expression) > 16384 {
 			return result, errors.New("Enter a query")
 		}
 		var v sdk.QueryResult
-		v, err = p.(sdk.MetricSource).Query(callCtx, q)
+		v, err = sdk.Resolve(p, "metrics").(sdk.MetricSource).Query(callCtx, q)
 		result = sdk.DataResult{Type: "timeseries", Series: v.Series, Warnings: v.Warnings}
 		if v.Truncated {
 			result.Warnings = append(result.Warnings, "Truncated result")
@@ -169,12 +169,12 @@ func (a *Service) ExecuteContribution(connectionID, sourceID string, request Con
 		}
 		if capability == "logs" {
 			var v sdk.LogResult
-			v, err = p.(sdk.LogSource).SearchLogs(callCtx, search)
+			v, err = sdk.Resolve(p, "logs").(sdk.LogSource).SearchLogs(callCtx, search)
 			records = v.Entries
 			result.Warnings = v.Observation.Diagnostics
 		} else {
 			var v sdk.TraceSearchResult
-			v, err = p.(sdk.TraceSource).SearchTraces(callCtx, search)
+			v, err = sdk.Resolve(p, "traces").(sdk.TraceSource).SearchTraces(callCtx, search)
 			records = v.Traces
 			result.Warnings = v.Observation.Diagnostics
 		}

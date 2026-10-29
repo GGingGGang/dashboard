@@ -1,0 +1,10 @@
+{
+  "id": "example-inventory", "version": "1.0.0", "contractVersion": 1,
+  "providers": [{
+    "id": "example-inventory", "name": "Inventory example", "executable": "provider.exe",
+    "info": {"kind": "example-inventory", "name": "Inventory example", "category": "inventory", "capabilities": ["data"], "onDemand": true, "defaultAuth": "none", "authMethods": ["none"]}
+  }],
+  "cards": [{"id": "items", "title": "Inventory items", "capability": "data", "renderer": "table",
+    "configSchema": {"type": "object", "properties": {"region": {"type": "string", "default": "local", "title": "Region"}}, "required": ["region"]}}],
+  "dashboards": [{"id": "overview", "title": "Inventory example", "cards": ["items"]}]
+}

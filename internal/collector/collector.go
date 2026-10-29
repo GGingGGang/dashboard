@@ -62,16 +62,16 @@ func (c *Collector) Poll(ctx context.Context) platform.Snapshot {
 		}
 		next.Modules[name] = status
 	}
-	if p, ok := c.Provider.(platform.BuildSource); ok {
+	if p, ok := platform.Resolve(c.Provider, "builds").(platform.BuildSource); ok {
 		collect("builds", func(ctx context.Context) { c.pollBuilds(ctx, p, &next) })
 	}
-	if p, ok := c.Provider.(platform.QueueSource); ok {
+	if p, ok := platform.Resolve(c.Provider, "queue").(platform.QueueSource); ok {
 		collect("queue", func(ctx context.Context) { c.pollQueue(ctx, p, &next) })
 	}
-	if p, ok := c.Provider.(platform.DeploymentSource); ok {
+	if p, ok := platform.Resolve(c.Provider, "deployments").(platform.DeploymentSource); ok {
 		collect("deployments", func(ctx context.Context) { c.pollDeployments(ctx, p, &next) })
 	}
-	if p, ok := c.Provider.(platform.MetricSource); ok {
+	if p, ok := platform.Resolve(c.Provider, "metrics").(platform.MetricSource); ok {
 		collect("metrics", func(ctx context.Context) { c.pollMetrics(ctx, p, &next) })
 	}
 	if len(next.Modules) == 0 {

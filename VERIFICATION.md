@@ -1,3 +1,19 @@
+## External package/runtime phase 5 — 2026-10-29
+
+Implemented trusted ZIP staging, atomic next-start index, startup registration,
+restart-applied install/upgrade/removal, native file picker and package status UI.
+SDK-only JSON-RPC stdio supports all existing typed capabilities, reverse scoped
+source changes, cancellation, process failure recovery, partial errors and secret
+redaction. Package removal retains user settings/history and immutable package files.
+
+SDK/root Go tests and vet passed. Independent fixture executables were built with
+GOPROXY=off and exercised as real processes: capability mismatch, source update/delete,
+crash/recovery through application, cancellation of an uncooperative call, activation
+and secret redaction. ZIP validation and restart boundaries passed. Frontend build
+and 8 focused browser tests passed. The working example ZIP was built independently.
+Native picker/WebView2 interaction and live upstreams were not exercised. Existing
+32-bit GCC still prevents race builds. This is trusted code, not an OS sandbox.
+
 ## Declarative plugin contributions — 2026-10-28
 
 Phase 4 adds manifest-derived navigation, plugin management, dedicated dashboard

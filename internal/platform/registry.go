@@ -186,25 +186,25 @@ func ValidateCapabilities(p Provider, declared []string) error {
 		return errors.New("Provider constructor returned no provider")
 	}
 	actual := []string{}
-	if _, ok := p.(sdk.DataSource); ok {
+	if _, ok := sdk.Resolve(p, "data").(sdk.DataSource); ok {
 		actual = append(actual, "data")
 	}
-	if _, ok := p.(BuildSource); ok {
+	if _, ok := sdk.Resolve(p, "builds").(BuildSource); ok {
 		actual = append(actual, "builds")
 	}
-	if _, ok := p.(QueueSource); ok {
+	if _, ok := sdk.Resolve(p, "queue").(QueueSource); ok {
 		actual = append(actual, "queue")
 	}
-	if _, ok := p.(CD); ok {
+	if _, ok := sdk.Resolve(p, "deployments").(CD); ok {
 		actual = append(actual, "deployments")
 	}
-	if _, ok := p.(Monitoring); ok {
+	if _, ok := sdk.Resolve(p, "metrics").(Monitoring); ok {
 		actual = append(actual, "metrics")
 	}
-	if _, ok := p.(LogSource); ok {
+	if _, ok := sdk.Resolve(p, "logs").(LogSource); ok {
 		actual = append(actual, "logs")
 	}
-	if _, ok := p.(TraceSource); ok {
+	if _, ok := sdk.Resolve(p, "traces").(TraceSource); ok {
 		actual = append(actual, "traces")
 	}
 	if len(actual) == 0 {

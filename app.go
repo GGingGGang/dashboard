@@ -14,6 +14,7 @@ import (
 
 	"idp-dashboard/internal/application"
 	"idp-dashboard/internal/demo"
+	"idp-dashboard/internal/extensions"
 	"idp-dashboard/internal/jsonsource"
 	"idp-dashboard/internal/platform"
 	"idp-dashboard/internal/providers"
@@ -21,12 +22,14 @@ import (
 )
 
 type App struct {
-	ctx       context.Context
-	service   *application.Service
-	registry  *platform.Registry
-	demoMode  bool
-	closeDemo func()
-	err       string
+	packages     *extensions.Manager
+	packageError string
+	ctx          context.Context
+	service      *application.Service
+	registry     *platform.Registry
+	demoMode     bool
+	closeDemo    func()
+	err          string
 }
 type ConnectionInput = application.ConnectionInput
 type ConnectionView = application.ConnectionView
@@ -54,6 +57,10 @@ func (a *App) startup(ctx context.Context) {
 	root = filepath.Join(root, "IDPDashboard")
 	if a.demoMode {
 		root = filepath.Join(root, "demo")
+	}
+	a.packages = extensions.NewManager(filepath.Join(root, "plugins"), a.registry.Plugins())
+	if err := a.packages.Load(a.registry); err != nil {
+		a.packageError = err.Error()
 	}
 	store, err := storage.OpenStore(filepath.Join(root, "dashboard.db"))
 	if err != nil {
@@ -93,7 +100,11 @@ func (a *App) ready() error {
 }
 func (a *App) GetState() State {
 	if a.service != nil {
-		return a.service.GetState()
+		state := a.service.GetState()
+		if a.packageError != "" {
+			state.Error += " Plugin packages: " + a.packageError
+		}
+		return state
 	}
 	return State{Connections: []ConnectionView{}, Snapshots: []platform.Snapshot{}, Providers: a.registry.Infos(), Error: a.err, Demo: a.demoMode}
 }
